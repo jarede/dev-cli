@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Baixa todos os artefatos compilados
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: binario-*
           path: dist
@@ -121,7 +121,7 @@ jobs:
           ref: main
 
       - name: Baixa todos os artefatos compilados
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: binario-*
           path: dist

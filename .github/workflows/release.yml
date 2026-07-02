@@ -57,6 +57,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Compila em modo release
+        shell: bash
         run: cargo build --release --locked --target "$TARGET"
 
       - name: Empacota o binário (Unix)

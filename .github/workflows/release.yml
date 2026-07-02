@@ -49,7 +49,7 @@ jobs:
       TARGET: ${{ matrix.target }}
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Instala o toolchain Rust para o alvo
         uses: dtolnay/rust-toolchain@stable
@@ -116,7 +116,7 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
 

@@ -81,7 +81,7 @@ jobs:
           Remove-Item "dev-cli.exe"
 
       - name: Sobe o pacote como artefato do workflow
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binario-${{ matrix.target }}
           path: dist/*

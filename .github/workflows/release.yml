@@ -1,0 +1,226 @@
+name: Release
+
+# Dispara ao empurrar uma tag "vX.Y.Z" (ex: `git tag v0.1.0 && git push --tags`).
+# Fluxo: (1) compila o binário pra cada combinação de SO/arquitetura,
+# (2) publica todos os binários como uma GitHub Release, (3) atualiza a
+# fórmula do Homebrew e o manifest do Scoop neste mesmo repositório com a
+# nova versão e os checksums, e comita direto na `main`.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+env:
+  CARGO_TERM_COLOR: always
+
+# `contents: write` é necessário tanto para criar a Release quanto para o
+# commit automático da fórmula/manifest no job final.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Apple Silicon — nativo nos runners `macos-latest` atuais.
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          # macOS Intel — cross-compilado no mesmo runner arm64 (o SDK do
+          # Xcode já vem com suporte a linkedição para x86_64).
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          # Linux x86_64 — a arquitetura mais comum; glibc (não musl) por
+          # simplicidade, compatível com a esmagadora maioria das distros.
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          # Windows x86_64 — cobre a grande maioria das máquinas Windows.
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    # Variáveis de ambiente em vez de interpolar `${{ }}` direto no texto
+    # dos scripts abaixo — mesmo `matrix.target`/`github.ref_name` sendo
+    # valores de baixo risco aqui (só quem tem push pode criar a tag),
+    # `$TARGET`/`$TAG` como variável de shell evita qualquer ambiguidade
+    # de quoting/injeção no script.
+    env:
+      TARGET: ${{ matrix.target }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instala o toolchain Rust para o alvo
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Compila em modo release
+        run: cargo build --release --locked --target "$TARGET"
+
+      - name: Empacota o binário (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          nome="dev-cli-${TAG}-${TARGET}"
+          cp "target/${TARGET}/release/dev-cli" dev-cli
+          tar -czf "dist/${nome}.tar.gz" dev-cli README.md
+          rm dev-cli
+
+      - name: Empacota o binário (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $nome = "dev-cli-$env:TAG-$env:TARGET"
+          Copy-Item "target/$env:TARGET/release/dev-cli.exe" -Destination "dev-cli.exe"
+          Compress-Archive -Path "dev-cli.exe","README.md" -DestinationPath "dist/$nome.zip"
+          Remove-Item "dev-cli.exe"
+
+      - name: Sobe o pacote como artefato do workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: binario-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publica a GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixa todos os artefatos compilados
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binario-*
+          path: dist
+          merge-multiple: true
+
+      - name: Gera os checksums SHA-256
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS.txt
+
+      - name: Cria a Release e anexa os arquivos
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  atualiza_gerenciadores:
+    name: Atualiza fórmula Homebrew e manifest Scoop
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Baixa todos os artefatos compilados
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binario-*
+          path: dist
+          merge-multiple: true
+
+      # A fórmula/manifest referenciam a versão sem o "v" (ex: "0.1.0"),
+      # mas os nomes dos arquivos de release usam a tag inteira (com "v"),
+      # já que é `$TAG` o nome usado ao empacotar no job `build`.
+      - name: Calcula versão e checksums
+        id: dados
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          versao="${TAG#v}"
+          echo "versao=$versao" >> "$GITHUB_OUTPUT"
+          echo "sha_macos_arm64=$(sha256sum "dev-cli-${TAG}-aarch64-apple-darwin.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sha_macos_x86_64=$(sha256sum "dev-cli-${TAG}-x86_64-apple-darwin.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sha_linux_x86_64=$(sha256sum "dev-cli-${TAG}-x86_64-unknown-linux-gnu.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "sha_windows_x86_64=$(sha256sum "dev-cli-${TAG}-x86_64-pc-windows-msvc.zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Regenera Formula/dev-cli.rb
+        env:
+          VERSAO: ${{ steps.dados.outputs.versao }}
+          SHA_MACOS_ARM64: ${{ steps.dados.outputs.sha_macos_arm64 }}
+          SHA_MACOS_X86_64: ${{ steps.dados.outputs.sha_macos_x86_64 }}
+          SHA_LINUX_X86_64: ${{ steps.dados.outputs.sha_linux_x86_64 }}
+        run: |
+          cat > Formula/dev-cli.rb <<EOF
+          class DevCli < Formula
+            desc "Canivete suíço de linha de comando para tarefas de desenvolvimento"
+            homepage "https://github.com/jarede/dev-cli"
+            license "MIT"
+            version "${VERSAO}"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/jarede/dev-cli/releases/download/${TAG}/dev-cli-${TAG}-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_MACOS_ARM64}"
+              else
+                url "https://github.com/jarede/dev-cli/releases/download/${TAG}/dev-cli-${TAG}-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_MACOS_X86_64}"
+              end
+            end
+
+            on_linux do
+              url "https://github.com/jarede/dev-cli/releases/download/${TAG}/dev-cli-${TAG}-x86_64-unknown-linux-gnu.tar.gz"
+              sha256 "${SHA_LINUX_X86_64}"
+            end
+
+            def install
+              bin.install "dev-cli"
+            end
+
+            test do
+              assert_match "dev-cli #{version}", shell_output("#{bin}/dev-cli version")
+            end
+          end
+          EOF
+
+      - name: Regenera bucket/dev-cli.json (Scoop)
+        env:
+          VERSAO: ${{ steps.dados.outputs.versao }}
+          SHA_WINDOWS_X86_64: ${{ steps.dados.outputs.sha_windows_x86_64 }}
+        run: |
+          cat > bucket/dev-cli.json <<EOF
+          {
+              "version": "${VERSAO}",
+              "description": "Canivete suíço de linha de comando para tarefas de desenvolvimento",
+              "homepage": "https://github.com/jarede/dev-cli",
+              "license": "MIT",
+              "architecture": {
+                  "64bit": {
+                      "url": "https://github.com/jarede/dev-cli/releases/download/${TAG}/dev-cli-${TAG}-x86_64-pc-windows-msvc.zip",
+                      "hash": "${SHA_WINDOWS_X86_64}",
+                      "bin": "dev-cli.exe"
+                  }
+              },
+              "checkver": {
+                  "url": "https://github.com/jarede/dev-cli/releases/latest",
+                  "regex": "v([\\\\d.]+)"
+              },
+              "autoupdate": {
+                  "architecture": {
+                      "64bit": {
+                          "url": "https://github.com/jarede/dev-cli/releases/download/v\$version/dev-cli-v\$version-x86_64-pc-windows-msvc.zip"
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Comita as mudanças na main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/dev-cli.rb bucket/dev-cli.json
+          if git diff --cached --quiet; then
+            echo "Nada para comitar (fórmula/manifest já atualizados)."
+          else
+            git commit -m "chore(release): atualiza formula Homebrew e manifest Scoop para $TAG"
+            git push origin HEAD:main
+          fi

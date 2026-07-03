@@ -452,7 +452,6 @@ pub struct DadosProvedor {
 /// distingue as linhas na tabela renderizada, então não precisa reagrupar)
 /// e custo somado. `sem_preco` passa por um `BTreeSet` só para ordenar e
 /// remover duplicatas entre os dois provedores.
-#[allow(dead_code)]
 pub fn mesclar_dados(mut a: DadosProvedor, b: DadosProvedor) -> DadosProvedor {
     for (dia, tokens) in b.tokens_por_dia {
         *a.tokens_por_dia.entry(dia).or_insert(0) += tokens;

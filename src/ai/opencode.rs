@@ -353,10 +353,6 @@ fn agregar(conn: &Connection, periodo: &str) -> rusqlite::Result<render::DadosPr
 // banco no caminho padrão e delega para `agregar`. O subcomando
 // `opencode` (que aceita `--db` customizado) não passa por aqui — abre
 // sua própria conexão em `execute()` e chama `agregar` direto.
-// Ainda sem chamador — será consumida pelo dashboard combinado de `ai
-// stats` (stats.rs) numa tarefa futura. Mesmo padrão de
-// `render::mesclar_dados`: `#[allow(dead_code)]` até a integração.
-#[allow(dead_code)]
 pub fn carregar_dados(periodo: &str) -> Result<render::DadosProvedor, Box<dyn std::error::Error>> {
     let caminho_db = caminho_padrao_db();
     if !caminho_db.exists() {

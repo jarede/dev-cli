@@ -11,4 +11,4 @@ pub const ARGUMENTOS_HEADING: &str = "Argumentos";
 // próprios (ex: `ai stats`, que sem subcomando mostra um dashboard
 // combinado, e com um provedor explícito encaminha só para ele).
 pub const ARGUMENTOS_SUBCOMANDOS: &str =
-    "{about}\nUso: {usage}\n\n{all-args}\n\nComandos:\n{subcommands}";
+    "{about}\nUso: {usage}\n\nArgumentos:\n{positionals}\n\nOpções:\n{options}\n\nComandos:\n{subcommands}";

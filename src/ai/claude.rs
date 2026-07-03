@@ -212,20 +212,79 @@ pub fn carregar_sessoes(
     (sessoes, usos, tokens_por_dia)
 }
 
+// ── carregar_dados ──────────────────────────────────────────────────
+// Carrega as sessões do período e agrega tokens/custo por modelo,
+// devolvendo o pacote compartilhado `DadosProvedor`. Extraído de
+// `execute()` para ser reaproveitado pelo dashboard combinado (`ai
+// stats`, sem subcomando, em `stats.rs`) sem duplicar esta lógica.
+pub fn carregar_dados(periodo: &str) -> render::DadosProvedor {
+    let (sessoes, usos, tokens_por_dia) = carregar_sessoes(periodo);
+
+    let mut custo_usd_total = 0.0;
+    let mut modelos_sem_preco: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
+    let mut por_modelo: BTreeMap<String, render::ModeloUso> = BTreeMap::new();
+
+    for uso in &usos {
+        // "<synthetic>" é o placeholder interno do Claude Code para
+        // mensagens de erro/rate-limit — não é uso real de um modelo
+        // (tokens sempre zerados), então não entra na tabela.
+        if uso.modelo == "<synthetic>" {
+            continue;
+        }
+
+        let entry = por_modelo
+            .entry(uso.modelo.clone())
+            .or_insert(render::ModeloUso {
+                modelo: uso.modelo.clone(),
+                provedor: "anthropic".to_string(),
+                sessoes: 0,
+                tokens_entrada: 0,
+                tokens_cache_escrita: 0,
+                tokens_cache_leitura: 0,
+                tokens_saida: 0,
+                custo_entrada: 0.0,
+                custo_cache_escrita: 0.0,
+                custo_cache_leitura: 0.0,
+                custo_saida: 0.0,
+            });
+        entry.tokens_entrada += uso.tokens_entrada;
+        entry.tokens_cache_escrita += uso.tokens_cache_escrita;
+        entry.tokens_cache_leitura += uso.tokens_cache_leitura;
+        entry.tokens_saida += uso.tokens_saida;
+        entry.sessoes += 1;
+
+        if let Some(custo) = crate::ai::precos::calcular_custo_detalhado(
+            &uso.modelo,
+            uso.tokens_entrada,
+            uso.tokens_cache_escrita,
+            uso.tokens_cache_leitura,
+            uso.tokens_saida,
+        ) {
+            custo_usd_total += custo.total();
+            entry.custo_entrada += custo.entrada;
+            entry.custo_cache_escrita += custo.cache_escrita;
+            entry.custo_cache_leitura += custo.cache_leitura;
+            entry.custo_saida += custo.saida;
+        } else {
+            modelos_sem_preco.insert(uso.modelo.clone());
+        }
+    }
+
+    render::DadosProvedor {
+        sessoes,
+        modelos: por_modelo.into_values().collect(),
+        tokens_por_dia,
+        custo_total: custo_usd_total,
+        sem_preco: modelos_sem_preco.into_iter().collect(),
+    }
+}
+
 // ── execute() ───────────────────────────────────────────────────────
-// Fluxo espelhado do `OpencodeArgs::execute()`:
-//   1. Carrega sessões + uso dos JSONL
-//   2. Agrega custo e modelos (iterando `usos` uma vez só)
-//   3. Se `--json`, monta e retorna o JSON
-//   4. Senão, delega para `render::renderizar_dashboard`
+// Resolve o período, carrega os dados via `carregar_dados` e delega
+// para JSON ou `render::renderizar_dashboard`.
 impl ClaudeArgs {
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // Determina o filtro de período:
-        // - `--historico` → string vazia (carregar_sessoes não filtra)
-        // - `periodo` explícito → filtra por ele, seja mês (YYYY-MM) ou
-        //   dia (YYYY-MM-DD) — o `starts_with` no timestamp RFC 3339 casa
-        //   naturalmente com qualquer um dos dois prefixos.
-        // - nenhum → mês atual
         let periodo = if self.historico {
             String::new()
         } else {
@@ -234,89 +293,23 @@ impl ClaudeArgs {
                 .unwrap_or_else(|| Local::now().format("%Y-%m").to_string())
         };
 
-        let (sessoes, usos, tokens_por_dia) = carregar_sessoes(&periodo);
-        if sessoes.is_empty() && tokens_por_dia.is_empty() {
+        let dados = carregar_dados(&periodo);
+        if dados.sessoes.is_empty() && dados.tokens_por_dia.is_empty() {
             return Ok(format!("Nenhuma sessão encontrada para {periodo}"));
         }
 
-        // ── Agregação de custo e modelos ────────────────────────────
-        // Percorre `usos` uma única vez, acumulando:
-        //   - `custo_usd_total`: soma de todos os custos estimados
-        //   - `modelos_sem_preco`: modelos sem entrada na tabela de
-        //     preços (ex: modelos novos ou sintéticos)
-        //   - `por_modelo`: agregação por modelo para a tabela
-        //
-        // O custo é estimado via `precos::calcular_custo_usd`, que
-        // consulta uma tabela local de preços por modelo.
-        let mut custo_usd_total = 0.0;
-        let mut modelos_sem_preco: std::collections::BTreeSet<String> =
-            std::collections::BTreeSet::new();
-        let mut por_modelo: BTreeMap<String, render::ModeloUso> = BTreeMap::new();
-
-        for uso in &usos {
-            // "<synthetic>" é o placeholder interno do Claude Code para
-            // mensagens de erro/rate-limit — não é uso real de um modelo
-            // (tokens sempre zerados), então não entra na tabela.
-            if uso.modelo == "<synthetic>" {
-                continue;
-            }
-
-            let entry = por_modelo
-                .entry(uso.modelo.clone())
-                .or_insert(render::ModeloUso {
-                    modelo: uso.modelo.clone(),
-                    provedor: "anthropic".to_string(),
-                    sessoes: 0,
-                    tokens_entrada: 0,
-                    tokens_cache_escrita: 0,
-                    tokens_cache_leitura: 0,
-                    tokens_saida: 0,
-                    custo_entrada: 0.0,
-                    custo_cache_escrita: 0.0,
-                    custo_cache_leitura: 0.0,
-                    custo_saida: 0.0,
-                });
-            entry.tokens_entrada += uso.tokens_entrada;
-            entry.tokens_cache_escrita += uso.tokens_cache_escrita;
-            entry.tokens_cache_leitura += uso.tokens_cache_leitura;
-            entry.tokens_saida += uso.tokens_saida;
-            entry.sessoes += 1;
-
-            if let Some(custo) = crate::ai::precos::calcular_custo_detalhado(
-                &uso.modelo,
-                uso.tokens_entrada,
-                uso.tokens_cache_escrita,
-                uso.tokens_cache_leitura,
-                uso.tokens_saida,
-            ) {
-                custo_usd_total += custo.total();
-                entry.custo_entrada += custo.entrada;
-                entry.custo_cache_escrita += custo.cache_escrita;
-                entry.custo_cache_leitura += custo.cache_leitura;
-                entry.custo_saida += custo.saida;
-            } else {
-                modelos_sem_preco.insert(uso.modelo.clone());
-            }
-        }
-
-        // Converte o BTreeMap<modelo, ModeloUso> em Vec e o
-        // BTreeSet de modelos sem preço em Vec<String> (o que
-        // `renderizar_dashboard` espera).
-        let modelos: Vec<render::ModeloUso> = por_modelo.into_values().collect();
-        let sem_preco: Vec<String> = modelos_sem_preco.into_iter().collect();
-
-        // ── Subtítulo ────────────────────────────────────────────────
-        // Se `--historico`, mostra um resumo. Senão, mostra o período
-        // (mês ou dia) filtrado.
-        let por_dia = render::agregar_por_dia(&sessoes);
+        let por_dia = render::agregar_por_dia(&dados.sessoes);
         let total_horas: f64 = por_dia.values().map(|(h, _)| h).sum();
         let subtitulo = if self.historico {
-            format!("{:.1}h totais em {} sessões", total_horas, sessoes.len())
+            format!(
+                "{:.1}h totais em {} sessões",
+                total_horas,
+                dados.sessoes.len()
+            )
         } else {
             periodo.clone()
         };
 
-        // ── JSON (early return) ──────────────────────────────────────
         if self.json {
             #[derive(serde::Serialize)]
             struct LinhaDia {
@@ -352,10 +345,11 @@ impl ClaudeArgs {
                         sessoes: *sessoes,
                     })
                     .collect(),
-                custo_usd_total,
-                modelos,
-                modelos_sem_preco: sem_preco,
-                tokens_por_dia: tokens_por_dia
+                custo_usd_total: dados.custo_total,
+                modelos: dados.modelos,
+                modelos_sem_preco: dados.sem_preco,
+                tokens_por_dia: dados
+                    .tokens_por_dia
                     .iter()
                     .map(|(dia, tokens)| LinhaDiaTokens {
                         dia: dia.to_string(),
@@ -366,17 +360,14 @@ impl ClaudeArgs {
             return Ok(serde_json::to_string_pretty(&saida_json)?);
         }
 
-        // ── Dashboard visual (delega para render.rs) ─────────────────
-        // O ranking de top dias é o número que o usuário pediu
-        // via `--top` (padrão: 5).
         Ok(render::renderizar_dashboard(
             "Claude Code atividade",
             &subtitulo,
-            &tokens_por_dia,
-            &sessoes,
-            &modelos,
-            custo_usd_total,
-            &sem_preco,
+            &dados.tokens_por_dia,
+            &dados.sessoes,
+            &dados.modelos,
+            dados.custo_total,
+            &dados.sem_preco,
             self.weeks,
             !self.no_color,
             Some(self.top),

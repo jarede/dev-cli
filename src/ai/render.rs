@@ -438,7 +438,6 @@ impl ModeloUso {
 /// mesclá-los com `mesclar_dados`, sem duplicar a lógica de agregação que
 /// já vive em `claude::carregar_dados` e `opencode::carregar_dados`.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct DadosProvedor {
     pub sessoes: Vec<Sessao>,
     pub modelos: Vec<ModeloUso>,

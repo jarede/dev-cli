@@ -1,12 +1,12 @@
 {
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Canivete suíço de linha de comando para tarefas de desenvolvimento",
     "homepage": "https://github.com/jarede/dev-cli",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/jarede/dev-cli/releases/download/v0.1.0/dev-cli-v0.1.0-x86_64-pc-windows-msvc.zip",
-            "hash": "7deaeebb80a2dbe344ebba06578bc0c3df1367d22b1ba0a7654efb91a6724c75",
+            "url": "https://github.com/jarede/dev-cli/releases/download/v0.1.1/dev-cli-v0.1.1-x86_64-pc-windows-msvc.zip",
+            "hash": "80d533ba27a303f39ac2de1169b2c580184a9cc359e664ec9124c9e7ae7b8ba3",
             "bin": "dev-cli.exe"
         }
     },

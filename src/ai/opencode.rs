@@ -290,11 +290,86 @@ fn carregar_sessoes_opencode(
     Ok(sessoes)
 }
 
+// ── agregar ─────────────────────────────────────────────────────────
+// Carrega tokens/dia, modelos (com estimativa de custo para `-free`) e
+// sessões a partir de uma conexão já aberta, devolvendo o pacote
+// compartilhado `DadosProvedor`. Privada porque só tem sentido com uma
+// `Connection` já validada — quem chama de fora usa `carregar_dados`
+// (caminho padrão) ou, no caso do subcomando `opencode` com `--db`
+// customizado, abre a conexão em `execute()` e chama esta função direto.
+fn agregar(conn: &Connection, periodo: &str) -> rusqlite::Result<render::DadosProvedor> {
+    let tokens_por_dia = carregar_tokens_por_dia(conn, periodo)?;
+    let mut modelos = carregar_modelos(conn, periodo)?;
+    let sessoes = carregar_sessoes_opencode(conn, periodo)?;
+
+    // Estimativa de custo para modelos `-free`: usam a taxa efetiva do
+    // modelo não-free equivalente presente no próprio banco (taxa =
+    // custo_real / tokens), redistribuída entre entrada/cache/saída na
+    // mesma proporção do modelo free. Sem equivalente não-free no
+    // período, o modelo free fica sem estimativa (entra em `sem_preco`).
+    let mut modelos_sem_preco: Vec<String> = Vec::new();
+    let nao_free: BTreeMap<String, (f64, i64)> = modelos
+        .iter()
+        .filter(|m| !m.modelo.ends_with("-free"))
+        .map(|m| (m.modelo.clone(), (m.custo_total(), m.tokens_totais())))
+        .collect();
+    for m in &mut modelos {
+        if m.modelo.ends_with("-free") {
+            let base = m.modelo.trim_end_matches("-free");
+            if let Some(&(custo_pago, tokens_pagos)) = nao_free.get(base)
+                && tokens_pagos > 0
+            {
+                let custo_estimado = m.tokens_totais() as f64 * custo_pago / tokens_pagos as f64;
+                let custo = crate::ai::precos::distribuir_custo_proporcional(
+                    custo_estimado,
+                    m.tokens_entrada,
+                    m.tokens_cache_escrita,
+                    m.tokens_cache_leitura,
+                    m.tokens_saida,
+                );
+                m.custo_entrada = custo.entrada;
+                m.custo_cache_escrita = custo.cache_escrita;
+                m.custo_cache_leitura = custo.cache_leitura;
+                m.custo_saida = custo.saida;
+            } else {
+                modelos_sem_preco.push(m.modelo.clone());
+            }
+        }
+    }
+
+    let custo_total: f64 = modelos.iter().map(|m| m.custo_total()).sum();
+
+    Ok(render::DadosProvedor {
+        sessoes,
+        modelos,
+        tokens_por_dia,
+        custo_total,
+        sem_preco: modelos_sem_preco,
+    })
+}
+
+// ── carregar_dados ──────────────────────────────────────────────────
+// Wrapper público usado pelo dashboard combinado (`stats.rs`): abre o
+// banco no caminho padrão e delega para `agregar`. O subcomando
+// `opencode` (que aceita `--db` customizado) não passa por aqui — abre
+// sua própria conexão em `execute()` e chama `agregar` direto.
+pub fn carregar_dados(periodo: &str) -> Result<render::DadosProvedor, Box<dyn std::error::Error>> {
+    let caminho_db = caminho_padrao_db();
+    if !caminho_db.exists() {
+        return Err(format!(
+            "banco do OpenCode não encontrado: '{}'",
+            caminho_db.display()
+        )
+        .into());
+    }
+    let conn = Connection::open(&caminho_db)?;
+    Ok(agregar(&conn, periodo)?)
+}
+
 // ── execute() ───────────────────────────────────────────────────────
 // Método principal chamado pelo dispatch em `stats.rs`. Fluxo:
 //   1. Descobre/abre o banco SQLite
-//   2. Carrega os 4 conjuntos de dados (resumo, tokens, modelos,
-//      sessões)
+//   2. Carrega o resumo e delega a agregação para `agregar`
 //   3. Filtra por mês se o usuário pediu
 //   4. Se `--json`, monta e retorna o JSON
 //   5. Senão, delega para `render::renderizar_dashboard`
@@ -315,11 +390,6 @@ impl OpencodeArgs {
         let conn = Connection::open(&caminho_db)?;
 
         // ── Define o filtro de período ────────────────────────────────
-        // - `--historico` → string vazia (SQL ignora o filtro)
-        // - `periodo` explícito → filtra por ele, seja mês (YYYY-MM) ou
-        //   dia (YYYY-MM-DD) — `filtro_periodo_sql` decide qual dos dois
-        //   pelo comprimento da string, direto no SQL das quatro queries.
-        // - nenhum → mês atual
         let periodo = if self.historico {
             String::new()
         } else {
@@ -328,61 +398,13 @@ impl OpencodeArgs {
                 .unwrap_or_else(|| Local::now().format("%Y-%m").to_string())
         };
 
-        // ── Carga dos dados (já filtrados pelo período na SQL) ────────
+        // `resumo` (tarefas/tokens brutos da tabela `message`) só é usado
+        // pelo subtítulo/JSON deste comando — não faz parte do pacote
+        // compartilhado `DadosProvedor`, que vem de `agregar`.
         let resumo = carregar_resumo(&conn, &periodo)?;
-        let tokens_por_dia = carregar_tokens_por_dia(&conn, &periodo)?;
-        let mut modelos = carregar_modelos(&conn, &periodo)?;
-        let sessoes = carregar_sessoes_opencode(&conn, &periodo)?;
-
-        // ── Estimativa de custo para modelos `-free` ──────────────────
-        // Modelos com sufixo `-free` têm custo zero no banco. Estimamos
-        // usando a taxa efetiva do modelo não-free equivalente presente
-        // no próprio banco: taxa = custo_real / tokens, aplicada aos
-        // tokens totais do modelo free. O custo estimado é então
-        // redistribuído entre entrada/cache/saída com a mesma proporção
-        // usada em `carregar_modelos` (`distribuir_custo_proporcional`),
-        // usando os tokens reais do próprio modelo free. Se não houver
-        // equivalente não-free no período, o modelo free fica com custo
-        // zero (sem estimativa).
-        let mut modelos_sem_preco: Vec<String> = Vec::new();
-        let nao_free: BTreeMap<String, (f64, i64)> = modelos
-            .iter()
-            .filter(|m| !m.modelo.ends_with("-free"))
-            .map(|m| (m.modelo.clone(), (m.custo_total(), m.tokens_totais())))
-            .collect();
-        for m in &mut modelos {
-            if m.modelo.ends_with("-free") {
-                let base = m.modelo.trim_end_matches("-free");
-                if let Some(&(custo_pago, tokens_pagos)) = nao_free.get(base)
-                    && tokens_pagos > 0
-                {
-                    let custo_estimado =
-                        m.tokens_totais() as f64 * custo_pago / tokens_pagos as f64;
-                    let custo = crate::ai::precos::distribuir_custo_proporcional(
-                        custo_estimado,
-                        m.tokens_entrada,
-                        m.tokens_cache_escrita,
-                        m.tokens_cache_leitura,
-                        m.tokens_saida,
-                    );
-                    m.custo_entrada = custo.entrada;
-                    m.custo_cache_escrita = custo.cache_escrita;
-                    m.custo_cache_leitura = custo.cache_leitura;
-                    m.custo_saida = custo.saida;
-                } else {
-                    modelos_sem_preco.push(m.modelo.clone());
-                }
-            }
-        }
-
-        // Soma o custo total a partir dos modelos (já com estimativas
-        // -go, se aplicável). Isso garante que o total do dashboard e
-        // do JSON reflita os valores estimados.
-        let custo_total: f64 = modelos.iter().map(|m| m.custo_total()).sum();
+        let dados = agregar(&conn, &periodo)?;
 
         // ── Subtítulo do dashboard ───────────────────────────────────
-        // Se `--historico`, mostra resumo geral. Senão, mostra o período
-        // (mês ou dia) filtrado.
         let subtitulo = if self.historico {
             format!(
                 "{} tokens totais ({} tarefas)",
@@ -394,10 +416,6 @@ impl OpencodeArgs {
         };
 
         // ── JSON (early return) ──────────────────────────────────────
-        // Structs locais com `#[derive(serde::Serialize)]` para não
-        // poluir o escopo do módulo. `chrono::NaiveDate` só implementa
-        // `Serialize` com a feature `serde` do chrono ativada; em vez
-        // de ligar a feature, convertemos pra String manualmente.
         if self.json {
             #[derive(serde::Serialize)]
             struct LinhaDiaTokens {
@@ -417,37 +435,38 @@ impl OpencodeArgs {
                 dias: Vec<LinhaDiaSessao>,
             }
             #[derive(serde::Serialize)]
-            struct Saida<'a> {
+            struct Saida {
                 historico: bool,
                 mes: String,
                 resumo_tarefas: i64,
                 tokens_totais: i64,
                 custo_usd: f64,
-                modelos_sem_preco: &'a [String],
+                modelos_sem_preco: Vec<String>,
                 tokens_por_dia: Vec<LinhaDiaTokens>,
-                modelos: &'a [render::ModeloUso],
+                modelos: Vec<render::ModeloUso>,
                 sessoes_horas: SaidaSessao,
             }
-            let por_dia_horas = render::agregar_por_dia(&sessoes);
+            let por_dia_horas = render::agregar_por_dia(&dados.sessoes);
             let total_horas: f64 = por_dia_horas.values().map(|(h, _)| h).sum();
             let saida_json = Saida {
                 historico: self.historico,
                 mes: subtitulo.clone(),
                 resumo_tarefas: resumo.tarefas,
                 tokens_totais: resumo.tokens_totais,
-                custo_usd: custo_total,
-                modelos_sem_preco: &modelos_sem_preco,
-                tokens_por_dia: tokens_por_dia
+                custo_usd: dados.custo_total,
+                modelos_sem_preco: dados.sem_preco,
+                tokens_por_dia: dados
+                    .tokens_por_dia
                     .iter()
                     .map(|(dia, tokens)| LinhaDiaTokens {
                         dia: dia.to_string(),
                         tokens: *tokens,
                     })
                     .collect(),
-                modelos: &modelos,
+                modelos: dados.modelos,
                 sessoes_horas: SaidaSessao {
                     total_horas,
-                    sessoes: sessoes.len(),
+                    sessoes: dados.sessoes.len(),
                     dias: por_dia_horas
                         .iter()
                         .map(|(dia, (horas, sessoes))| LinhaDiaSessao {
@@ -462,17 +481,14 @@ impl OpencodeArgs {
         }
 
         // ── Dashboard visual (delega para render.rs) ─────────────────
-        // Agora `modelos_sem_preco` contém os modelos `-free` cujo
-        // correspondente `-go` não está na tabela `precos.rs`.
-        // OpenCode não usa ranking de top dias (`None`).
         Ok(render::renderizar_dashboard(
             "OpenCode atividade",
             &subtitulo,
-            &tokens_por_dia,
-            &sessoes,
-            &modelos,
-            custo_total,
-            &modelos_sem_preco,
+            &dados.tokens_por_dia,
+            &dados.sessoes,
+            &dados.modelos,
+            dados.custo_total,
+            &dados.sem_preco,
             self.weeks,
             !self.no_color,
             None, // sem top dias

@@ -404,7 +404,7 @@ pub fn agregar_por_semana(
 /// Anthropic distingue: entrada "fresca", cache write, cache read e saída
 /// — ver `precos::CustoDetalhado`. Não há outros tipos de cobrança de
 /// token; o relatório mostra exatamente essas quatro parcelas.
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct ModeloUso {
     pub modelo: String,
     pub provedor: String,
@@ -430,6 +430,40 @@ impl ModeloUso {
     pub fn custo_total(&self) -> f64 {
         self.custo_entrada + self.custo_cache_escrita + self.custo_cache_leitura + self.custo_saida
     }
+}
+
+/// Pacote de dados já carregados e agregados de um provedor (OpenCode ou
+/// Claude), pronto para virar dashboard ou JSON. Existe para que `ai
+/// stats` sem subcomando (`stats.rs`) possa carregar os dois provedores e
+/// mesclá-los com `mesclar_dados`, sem duplicar a lógica de agregação que
+/// já vive em `claude::carregar_dados` e `opencode::carregar_dados`.
+#[derive(Debug)]
+pub struct DadosProvedor {
+    pub sessoes: Vec<Sessao>,
+    pub modelos: Vec<ModeloUso>,
+    pub tokens_por_dia: BTreeMap<NaiveDate, i64>,
+    pub custo_total: f64,
+    pub sem_preco: Vec<String>,
+}
+
+/// Mescla dois `DadosProvedor` num só: tokens por dia somados por chave
+/// (`entry().or_insert(0) +=`, mesmo idiom usado no resto do arquivo),
+/// sessões e modelos concatenados (a coluna `provedor` de `ModeloUso` já
+/// distingue as linhas na tabela renderizada, então não precisa reagrupar)
+/// e custo somado. `sem_preco` passa por um `BTreeSet` só para ordenar e
+/// remover duplicatas entre os dois provedores.
+pub fn mesclar_dados(mut a: DadosProvedor, b: DadosProvedor) -> DadosProvedor {
+    for (dia, tokens) in b.tokens_por_dia {
+        *a.tokens_por_dia.entry(dia).or_insert(0) += tokens;
+    }
+    a.sessoes.extend(b.sessoes);
+    a.modelos.extend(b.modelos);
+    a.custo_total += b.custo_total;
+
+    let sem_preco: BTreeSet<String> = a.sem_preco.into_iter().chain(b.sem_preco).collect();
+    a.sem_preco = sem_preco.into_iter().collect();
+
+    a
 }
 
 /// Monta o dashboard unificado — heatmap + horas + modelos + custo — usado
@@ -1066,5 +1100,68 @@ mod tests {
     fn duracao_sessao_sem_horarios_e_none() {
         let horarios: Vec<chrono::DateTime<chrono::Utc>> = vec![];
         assert_eq!(duracao_sessao(&horarios), None);
+    }
+
+    #[test]
+    fn mesclar_dados_soma_tokens_e_custo_e_concatena_modelos_e_sessoes() {
+        let dia1 = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let dia2 = NaiveDate::from_ymd_opt(2026, 7, 2).unwrap();
+
+        let a = DadosProvedor {
+            sessoes: vec![Sessao {
+                dia: dia1,
+                duracao_horas: 1.0,
+            }],
+            modelos: vec![ModeloUso {
+                modelo: "claude-x".to_string(),
+                provedor: "anthropic".to_string(),
+                sessoes: 1,
+                tokens_entrada: 10,
+                tokens_cache_escrita: 0,
+                tokens_cache_leitura: 0,
+                tokens_saida: 5,
+                custo_entrada: 0.1,
+                custo_cache_escrita: 0.0,
+                custo_cache_leitura: 0.0,
+                custo_saida: 0.05,
+            }],
+            tokens_por_dia: BTreeMap::from([(dia1, 100)]),
+            custo_total: 0.15,
+            sem_preco: vec!["modelo-a".to_string()],
+        };
+        let b = DadosProvedor {
+            sessoes: vec![Sessao {
+                dia: dia2,
+                duracao_horas: 2.0,
+            }],
+            modelos: vec![ModeloUso {
+                modelo: "grok-y".to_string(),
+                provedor: "opencode".to_string(),
+                sessoes: 1,
+                tokens_entrada: 20,
+                tokens_cache_escrita: 0,
+                tokens_cache_leitura: 0,
+                tokens_saida: 8,
+                custo_entrada: 0.2,
+                custo_cache_escrita: 0.0,
+                custo_cache_leitura: 0.0,
+                custo_saida: 0.08,
+            }],
+            tokens_por_dia: BTreeMap::from([(dia1, 50), (dia2, 200)]),
+            custo_total: 0.28,
+            sem_preco: vec!["modelo-a".to_string(), "modelo-b".to_string()],
+        };
+
+        let mesclado = mesclar_dados(a, b);
+
+        assert_eq!(mesclado.tokens_por_dia.get(&dia1), Some(&150));
+        assert_eq!(mesclado.tokens_por_dia.get(&dia2), Some(&200));
+        assert_eq!(mesclado.sessoes.len(), 2);
+        assert_eq!(mesclado.modelos.len(), 2);
+        assert!((mesclado.custo_total - 0.43).abs() < 1e-9);
+        assert_eq!(
+            mesclado.sem_preco,
+            vec!["modelo-a".to_string(), "modelo-b".to_string()]
+        );
     }
 }

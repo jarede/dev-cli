@@ -323,7 +323,11 @@ impl RemoteArgs {
             for c in containers {
                 let conteudo = obter_logs_remoto(&self.host, &c.nome, self.tail)?;
                 let niveis = contar_niveis_docker(&conteudo);
-                let status = if c.status.is_empty() { None } else { Some(c.status.as_str()) };
+                let status = if c.status.is_empty() {
+                    None
+                } else {
+                    Some(c.status.as_str())
+                };
                 saida.push_str(&renderizar_container(&c.nome, status, &niveis));
             }
             return Ok(saida.trim_end().to_string());
@@ -345,7 +349,9 @@ impl RemoteArgs {
         // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
         // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or
         let db_vazio = conn
-            .query_row("SELECT COUNT(*) FROM containers", [], |r| r.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM containers", [], |r| {
+                r.get::<_, i64>(0)
+            })
             .unwrap_or(0)
             == 0;
 
@@ -555,10 +561,7 @@ fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
             // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
             // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_default
             // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.push
-            grupos
-                .entry(nivel.to_uppercase())
-                .or_default()
-                .push(limpa);
+            grupos.entry(nivel.to_uppercase()).or_default().push(limpa);
         }
     }
     grupos
@@ -599,9 +602,7 @@ fn verificar_status_containers(
     let mut alertas = Vec::new();
 
     // Containers que estavam running mas não estão mais → pararam
-    let mut stmt = conn.prepare(
-        "SELECT name FROM containers WHERE status = 'running'",
-    )?;
+    let mut stmt = conn.prepare("SELECT name FROM containers WHERE status = 'running'")?;
     // `query_map` devolve um iterador de `Result<String, rusqlite::Error>`
     // (uma linha pode falhar ao ser convertida). `filter_map(|r| r.ok())`
     // descarta silenciosamente qualquer linha com erro e mantém só os `Ok`,
@@ -650,7 +651,9 @@ fn verificar_status_containers(
         // `Option` em vez de movê-lo, porque ainda usamos `status_anterior`
         // implicitamente via `status` logo abaixo.
         // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.as_ref
-        if let Some(status) = status_anterior.as_ref() && status == "stopped" {
+        if let Some(status) = status_anterior.as_ref()
+            && status == "stopped"
+        {
             conn.execute(
                 "INSERT INTO alerts (container_name, alert_type, message, created_at) VALUES (?1, 'restarted', ?2, ?3)",
                 rusqlite::params![nome, format!("Container '{nome}' reiniciou"), agora],
@@ -700,7 +703,8 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
     }
 
     // Carrega o status (uptime) de cada container do banco
-    let mut stmt2 = conn.prepare("SELECT name, uptime FROM containers WHERE uptime IS NOT NULL AND uptime != ''")?;
+    let mut stmt2 = conn
+        .prepare("SELECT name, uptime FROM containers WHERE uptime IS NOT NULL AND uptime != ''")?;
     let mut status_map: BTreeMap<String, String> = BTreeMap::new();
     // `.flatten()` sobre um iterador de `Result<(String, String), Error>`
     // funciona porque `Result` também implementa `IntoIterator` (0 ou 1
@@ -709,12 +713,13 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
     // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.flatten
     // docs: https://doc.rust-lang.org/std/result/enum.Result.html
     // docs: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html
-    for row in stmt2.query_map([], |r| {
-        let n: String = r.get(0)?;
-        let s: String = r.get(1)?;
-        Ok((n, s))
-    })?
-    .flatten()
+    for row in stmt2
+        .query_map([], |r| {
+            let n: String = r.get(0)?;
+            let s: String = r.get(1)?;
+            Ok((n, s))
+        })?
+        .flatten()
     {
         status_map.insert(row.0, row.1);
     }
@@ -752,7 +757,9 @@ fn obter_logs_remoto_desde(
 
 // CASCA DE IO: pergunta ao host remoto quais containers estão rodando com
 // status e timestamp de criação (uptime).
-fn listar_containers_remoto(host: &str) -> Result<Vec<ContainerRemoto>, Box<dyn std::error::Error>> {
+fn listar_containers_remoto(
+    host: &str,
+) -> Result<Vec<ContainerRemoto>, Box<dyn std::error::Error>> {
     let saida = std::process::Command::new("ssh")
         .args([
             host,
@@ -872,8 +879,10 @@ fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>>
     // `collect()` monta o `BTreeMap` a partir de um iterador de tuplas
     // `(chave, valor)` — cada container começa com um mapa de níveis vazio.
     // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
-    let mut totais: BTreeMap<String, BTreeMap<String, usize>> =
-        nomes.iter().map(|nome| (nome.clone(), BTreeMap::new())).collect();
+    let mut totais: BTreeMap<String, BTreeMap<String, usize>> = nomes
+        .iter()
+        .map(|nome| (nome.clone(), BTreeMap::new()))
+        .collect();
 
     // `Receiver` (o `rx`) implementa `Iterator`: o `for` bloqueia esperando a
     // próxima mensagem e só termina quando todos os `tx` (um por thread) forem
@@ -1060,7 +1069,9 @@ fn renderizar_container(
     status: Option<&str>,
     niveis: &BTreeMap<String, usize>,
 ) -> String {
-    let cabecalho = if let Some(s) = status && !s.is_empty() {
+    let cabecalho = if let Some(s) = status
+        && !s.is_empty()
+    {
         format!("📦 {}  ({})", nome.bold(), s.dimmed())
     } else {
         format!("📦 {}", nome.bold())
@@ -1242,7 +1253,8 @@ linha de continuação sem timestamp nem nível";
     #[test]
     fn remove_ansi_preserva_apenas_texto_visivel() {
         // Sequência real emitida por `container logs`: "\x1b[32m INFO\x1b[0m".
-        let linha = "\u{1b}[2m2026-07-03\u{1b}[0m \u{1b}[32m INFO\u{1b}[0m \u{1b}[2mdev_web\u{1b}[0m: msg";
+        let linha =
+            "\u{1b}[2m2026-07-03\u{1b}[0m \u{1b}[32m INFO\u{1b}[0m \u{1b}[2mdev_web\u{1b}[0m: msg";
         assert_eq!(remover_ansi(linha), "2026-07-03  INFO dev_web: msg");
     }
 

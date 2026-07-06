@@ -38,5 +38,4 @@ pub const ARGUMENTOS_HEADING: &str = "Argumentos";
 // de `ARGUMENTOS` (que usa o bloco pronto `{all-args}`), este template
 // separa manualmente `{positionals}`, `{options}` e `{subcommands}` em
 // seções próprias, porque aqui coexistem os três tipos ao mesmo tempo.
-pub const ARGUMENTOS_SUBCOMANDOS: &str =
-    "{about}\nUso: {usage}\n\nArgumentos:\n{positionals}\n\nOpções:\n{options}\n\nComandos:\n{subcommands}";
+pub const ARGUMENTOS_SUBCOMANDOS: &str = "{about}\nUso: {usage}\n\nArgumentos:\n{positionals}\n\nOpções:\n{options}\n\nComandos:\n{subcommands}";

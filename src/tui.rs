@@ -22,17 +22,17 @@ use crossterm::{
     // manualmente.
     // docs: https://docs.rs/crossterm/latest/crossterm/macro.execute.html
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 // `ratatui` é a crate de "widgets" da TUI: sabe desenhar listas, bordas,
 // parágrafos etc. a partir de um `Frame` (a área de desenho de um quadro).
 // docs: https://docs.rs/ratatui/latest/ratatui/
 // docs: https://docs.rs/ratatui/latest/ratatui/struct.Frame.html
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, Paragraph},
-    Frame,
 };
 use rusqlite::Connection;
 

@@ -21,6 +21,12 @@ use rusqlite::Connection;
 use crate::ai::render;
 
 /// Estatísticas de uso do OpenCode a partir do banco SQLite local.
+///
+/// `#[derive(Args)]` é a macro do `clap` que lê os atributos `#[arg(...)]`
+/// de cada campo abaixo e gera, em tempo de compilação, o parser de linha de
+/// comando (flags, posicionais, valores default, validação de range etc.) —
+/// não escrevemos esse parsing na mão. `Debug` só permite formatar a struct
+/// com `{:?}`, útil em prints de depuração.
 #[derive(Args, Debug)]
 #[command(
     help_template = crate::help::ARGUMENTOS,
@@ -56,8 +62,17 @@ pub struct OpencodeArgs {
 // Guarda os totais de tarefas e tokens no período consultado. O custo
 // total agora é calculado a partir dos modelos (já com estimativas -go),
 // não deste resumo.
+//
+// Struct só de uso interno (sem `pub`, sem derive): existe apenas para dar
+// nome aos dois valores que `carregar_resumo` devolve, em vez de retornar
+// uma tupla `(i64, i64)` anônima — deixa o código de quem consome mais
+// legível (`resumo.tarefas` em vez de `resumo.0`).
 struct Resumo {
+    /// Quantidade de mensagens do assistant no período (cada uma conta
+    /// como uma "tarefa" concluída).
     tarefas: i64,
+    /// Soma de todos os tokens (entrada + saída + reasoning + cache) no
+    /// período, já agregada pela query SQL.
     tokens_totais: i64,
 }
 
@@ -66,7 +81,13 @@ struct Resumo {
 // estar definida em sistemas Unix; se não estiver (shell quebrado),
 // usamos "." como fallback para gerar um caminho relativo.
 fn caminho_padrao_db() -> PathBuf {
+    // `std::env::var` devolve `Result<String, VarError>` (falha se a variável
+    // não existir ou não for UTF-8 válido). `unwrap_or_else` com uma closure
+    // só roda o fallback (`".".to_string()`) se der erro — evita alocar a
+    // string default no caminho feliz.
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    // `PathBuf::join` concatena componentes de caminho de forma portável
+    // (insere o separador certo por sistema operacional).
     PathBuf::from(home).join(".local/share/opencode/opencode.db")
 }
 
@@ -82,6 +103,14 @@ fn caminho_padrao_db() -> PathBuf {
 // tabela — muda conforme a query (`message` usa `json_extract`,
 // `session` tem coluna própria).
 fn filtro_periodo_sql(expr: &str) -> String {
+    // `format!` com captura implícita de variável: `{expr}` dentro da string
+    // é substituído pelo valor do parâmetro `expr` (funcionalidade da edition
+    // 2021+, evita escrever `{}` e passar `expr` como argumento posicional
+    // separado). O resultado é um fragmento de SQL (não uma query pronta),
+    // devolvido como `String` porque quem chama vai colar esse texto dentro
+    // de uma query maior via `format!` também. Os `?1` continuam sendo
+    // placeholders do `rusqlite` — não são substituídos aqui, só quando a
+    // query completa for executada com `params![periodo]`.
     format!(
         "(?1 = '' OR
           (length(?1) = 7 AND strftime('%Y-%m', {expr} / 1000, 'unixepoch', 'localtime') = ?1) OR
@@ -98,7 +127,15 @@ fn filtro_periodo_sql(expr: &str) -> String {
 // `bundled` do rusqlite) para acessar os campos sem precisar de
 // `serde_json` do lado Rust.
 fn carregar_resumo(conn: &Connection, periodo: &str) -> rusqlite::Result<Resumo> {
+    // `expr` é o SQL que extrai o timestamp de criação da mensagem (em ms)
+    // de dentro do JSON armazenado na coluna `data`; é reaproveitado tanto na
+    // query principal (`SUM`/`COUNT`) quanto dentro de `filtro_periodo_sql`.
     let expr = "CAST(json_extract(data, '$.time.created') AS INTEGER)";
+    // `Connection::query_row` executa a query e espera EXATAMENTE uma linha
+    // de resultado (erro se vier 0 ou mais de 1) — adequado aqui porque
+    // `COUNT`/`SUM` sem `GROUP BY` sempre devolvem uma única linha agregada.
+    // O terceiro argumento é uma closure que recebe a `Row` e monta o valor
+    // de retorno; o `?` dentro dela propaga erro de tipo/coluna ausente.
     conn.query_row(
         &format!(
             "SELECT
@@ -115,9 +152,15 @@ fn carregar_resumo(conn: &Connection, periodo: &str) -> rusqlite::Result<Resumo>
                AND {}",
             filtro_periodo_sql(expr)
         ),
+        // `rusqlite::params!` monta o array de valores para os placeholders
+        // `?1`, `?2`... da query; aqui só há `?1`, ligado a `periodo`.
         rusqlite::params![periodo],
         |linha| {
             Ok(Resumo {
+                // `linha.get(0)` busca a coluna pelo índice posicional (0 =
+                // primeira coluna do SELECT) e tenta converter para o tipo
+                // inferido pelo campo da struct (`i64`); `?` propaga erro de
+                // conversão sem abortar o processo.
                 tarefas: linha.get(0)?,
                 tokens_totais: linha.get(1)?,
             })
@@ -134,6 +177,10 @@ fn carregar_tokens_por_dia(
     periodo: &str,
 ) -> rusqlite::Result<BTreeMap<NaiveDate, i64>> {
     let expr = "CAST(json_extract(data, '$.time.created') AS INTEGER)";
+    // `conn.prepare` compila o SQL uma vez, devolvendo um `Statement`
+    // reutilizável — diferente de `query_row`, que prepara e já executa;
+    // aqui precisamos do `Statement` à parte porque vamos iterar várias
+    // linhas de resultado com `query_map` (uma por dia).
     let mut stmt = conn.prepare(&format!(
         "SELECT
             date({expr} / 1000, 'unixepoch', 'localtime') AS dia,
@@ -186,6 +233,8 @@ fn carregar_tokens_por_dia(
 // entre entrada/cache/saída é uma estimativa. `tokens_reasoning` é
 // contabilizado junto com a saída (é geração do modelo, não entrada).
 fn carregar_modelos(conn: &Connection, periodo: &str) -> rusqlite::Result<Vec<render::ModeloUso>> {
+    // Mesmo padrão de `carregar_tokens_por_dia`: prepara o `Statement` para
+    // depois iterar várias linhas (uma por combinação modelo+provedor).
     let mut stmt = conn.prepare(&format!(
         "SELECT
             json_extract(model, '$.id') AS modelo,
@@ -204,6 +253,10 @@ fn carregar_modelos(conn: &Connection, periodo: &str) -> rusqlite::Result<Vec<re
         filtro_periodo_sql("time_created")
     ))?;
 
+    // A closure lê as colunas cruas da linha, chama a função pura de rateio
+    // de custo (`distribuir_custo_proporcional`, definida em `precos.rs`) e
+    // monta o `ModeloUso` já com os quatro custos calculados — assim quem
+    // consome (`render.rs`) não precisa saber como o custo foi dividido.
     let linhas = stmt.query_map(rusqlite::params![periodo], |linha| {
         let tokens_entrada: i64 = linha.get(3)?;
         let tokens_saida: i64 = linha.get(4)?;
@@ -232,6 +285,11 @@ fn carregar_modelos(conn: &Connection, periodo: &str) -> rusqlite::Result<Vec<re
         })
     })?;
 
+    // `query_map` devolve um iterador de `rusqlite::Result<ModeloUso>`;
+    // `collect()` para um tipo `Result<Vec<_>, _>` faz o "curto-circuito"
+    // automático: se qualquer linha vier com erro, a coleção inteira vira
+    // `Err` (a inferência de tipo do retorno da função escolhe esse `collect`
+    // em vez de, por exemplo, `Vec<Result<_>>`).
     linhas.collect()
 }
 
@@ -273,6 +331,10 @@ fn carregar_sessoes_opencode(
     let mut sessoes = Vec::new();
     for linha in linhas {
         let (primeiro, ultimo, dia_texto) = linha?;
+        // `let ... else`: se o parse falhar, o `else` roda e OBRIGA a sair do
+        // escopo atual (aqui, `continue` pula pra próxima iteração); se
+        // funcionar, `dia` fica disponível como `NaiveDate` normal daqui pra
+        // baixo — sem precisar de `if let` aninhado nem `.unwrap()`.
         let Ok(dia) = NaiveDate::parse_from_str(&dia_texto, "%Y-%m-%d") else {
             continue; // data inválida — pula, não aborta
         };
@@ -308,14 +370,26 @@ fn agregar(conn: &Connection, periodo: &str) -> rusqlite::Result<render::DadosPr
     // mesma proporção do modelo free. Sem equivalente não-free no
     // período, o modelo free fica sem estimativa (entra em `sem_preco`).
     let mut modelos_sem_preco: Vec<String> = Vec::new();
+    // Constrói um índice modelo-pago → (custo, tokens) para consulta O(log n)
+    // depois. `iter()` empresta `modelos` (não o consome, pois ele é reusado
+    // logo abaixo); `filter` descarta os `-free`; `map` extrai só o que
+    // interessa; `collect()` para `BTreeMap` monta o mapa a partir do
+    // iterador de tuplas `(chave, valor)`.
     let nao_free: BTreeMap<String, (f64, i64)> = modelos
         .iter()
         .filter(|m| !m.modelo.ends_with("-free"))
         .map(|m| (m.modelo.clone(), (m.custo_total(), m.tokens_totais())))
         .collect();
+    // `&mut modelos`: empréstimo mutável do Vec inteiro, pois o `for` precisa
+    // alterar os campos de custo de cada `ModeloUso` no lugar (em vez de
+    // reconstruir o Vec). Só é possível porque `nao_free` já foi totalmente
+    // calculado antes — não há conflito de empréstimos simultâneos.
     for m in &mut modelos {
         if m.modelo.ends_with("-free") {
             let base = m.modelo.trim_end_matches("-free");
+            // "Let chain" (edition 2024): as duas condições (`Some` E
+            // `tokens_pagos > 0`) precisam ser verdadeiras para entrar no
+            // bloco, sem exigir `if let` aninhado com outro `if` dentro.
             if let Some(&(custo_pago, tokens_pagos)) = nao_free.get(base)
                 && tokens_pagos > 0
             {
@@ -356,12 +430,19 @@ fn agregar(conn: &Connection, periodo: &str) -> rusqlite::Result<render::DadosPr
 pub fn carregar_dados(periodo: &str) -> Result<render::DadosProvedor, Box<dyn std::error::Error>> {
     let caminho_db = caminho_padrao_db();
     if !caminho_db.exists() {
+        // `format!(...).into()`: transforma a `String` do erro no tipo de
+        // retorno `Box<dyn std::error::Error>` — `String` implementa `Error`,
+        // e `Box<dyn Error>` tem `From<String>`, então `.into()` encontra
+        // essa conversão. É o jeito mais simples de devolver um erro "ad hoc"
+        // sem precisar declarar um tipo de erro próprio.
         return Err(format!(
             "banco do OpenCode não encontrado: '{}'",
             caminho_db.display()
         )
         .into());
     }
+    // `?` aqui converte o erro do `rusqlite` (`rusqlite::Error`) para
+    // `Box<dyn Error>` automaticamente, via a mesma conversão `From`.
     let conn = Connection::open(&caminho_db)?;
     Ok(agregar(&conn, periodo)?)
 }
@@ -374,10 +455,19 @@ pub fn carregar_dados(periodo: &str) -> Result<render::DadosProvedor, Box<dyn st
 //   4. Se `--json`, monta e retorna o JSON
 //   5. Senão, delega para `render::renderizar_dashboard`
 impl OpencodeArgs {
+    // Assinatura padrão de todo subcomando neste projeto: `&self` (só lemos
+    // os argumentos já parseados pelo clap) e `Result<String, Box<dyn Error>>`
+    // — a `String` de sucesso é o texto pronto pra imprimir (`main.rs` faz
+    // isso), e `Box<dyn Error>` permite propagar, com `?`, erros de origens
+    // bem diferentes (SQLite, IO, JSON) sem declarar um enum de erro próprio.
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
         // ── Conexão com o banco ──────────────────────────────────────
         // Usa o caminho customizado (`--db`) ou o padrão
         // (`~/.local/share/opencode/opencode.db`).
+        // `self.db.clone()`: `db` é `Option<PathBuf>`; clonamos porque
+        // `unwrap_or_else` precisa tomar posse do valor (e `self` é só
+        // emprestado). Se for `None`, chama `caminho_padrao_db` (passada por
+        // nome de função, sem parênteses — vira a closure do fallback).
         let caminho_db = self.db.clone().unwrap_or_else(caminho_padrao_db);
         if !caminho_db.exists() {
             return Err(format!(
@@ -417,6 +507,13 @@ impl OpencodeArgs {
 
         // ── JSON (early return) ──────────────────────────────────────
         if self.json {
+            // Structs declaradas DENTRO da função: só existem no escopo deste
+            // `if`, porque só servem para dar forma ao JSON de saída deste
+            // comando — não fazem sentido em outro lugar do módulo. Cada uma
+            // tem `#[derive(serde::Serialize)]`, que gera o código que
+            // converte a struct para JSON (o `serde` olha o nome e tipo de
+            // cada campo e escreve o objeto correspondente); é por isso que
+            // os nomes dos campos aqui viram exatamente as chaves do JSON.
             #[derive(serde::Serialize)]
             struct LinhaDiaTokens {
                 dia: String,
@@ -434,6 +531,9 @@ impl OpencodeArgs {
                 sessoes: usize,
                 dias: Vec<LinhaDiaSessao>,
             }
+            // Struct "raiz" do JSON: agrupa tudo que o comando expõe quando
+            // chamado com `--json`, espelhando (em formato de dados) o mesmo
+            // conteúdo que o dashboard colorido mostra em texto.
             #[derive(serde::Serialize)]
             struct Saida {
                 historico: bool,
@@ -447,6 +547,9 @@ impl OpencodeArgs {
                 sessoes_horas: SaidaSessao,
             }
             let por_dia_horas = render::agregar_por_dia(&dados.sessoes);
+            // `.values()` itera só os valores do mapa (ignora as chaves/dias);
+            // `map(|(h, _)| h)` desestrutura a tupla `(horas, sessoes)` e
+            // descarta a segunda parte; `.sum()` reduz tudo a um único `f64`.
             let total_horas: f64 = por_dia_horas.values().map(|(h, _)| h).sum();
             let saida_json = Saida {
                 historico: self.historico,
@@ -477,6 +580,11 @@ impl OpencodeArgs {
                         .collect(),
                 },
             };
+            // `to_string_pretty` serializa a struct para uma `String` JSON
+            // indentada (legível para humanos, ao contrário de `to_string`,
+            // que gera JSON compacto numa linha só); o `?` propaga o erro se
+            // algum campo não puder ser serializado (não deveria acontecer
+            // aqui, já que todos os tipos envolvidos implementam `Serialize`).
             return Ok(serde_json::to_string_pretty(&saida_json)?);
         }
 

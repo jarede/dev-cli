@@ -3,9 +3,23 @@
 // — só transforma dados já carregados em texto pronto pra imprimir. Mesmo
 // espírito de `contar()` em `src/logs.rs`.
 
+// `BTreeMap`/`BTreeSet` (em vez de `HashMap`/`HashSet`): mantêm as chaves
+// ordenadas automaticamente, o que é essencial aqui — o heatmap, as tabelas
+// "por dia"/"por semana" e os streaks dependem de iterar datas em ordem
+// crescente sem precisar chamar `.sort()` manualmente.
 use std::collections::{BTreeMap, BTreeSet};
 
+// `chrono`: crate de data/hora. `NaiveDate` é uma data sem fuso horário (só
+// ano/mês/dia — o suficiente pro heatmap e pras sessões, que já chegam
+// agregadas por dia). `DateTime<Utc>` guarda instante com fuso UTC explícito
+// (usado em `duracao_sessao`, que precisa de hora/minuto/segundo). `Datelike`
+// é a trait que dá os métodos `.weekday()`, `.month()`, `.month0()` a
+// qualquer tipo de data do chrono. `Duration` representa um intervalo (ex:
+// `Duration::days(1)`) que pode ser somado/subtraído de uma data.
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc};
+// Trait de extensão do `owo-colors`: importá-la dá a qualquer tipo `Display`
+// métodos como `.truecolor(r,g,b)`, `.cyan()`, `.bold()`, que devolvem um
+// wrapper que, ao ser formatado, embute os códigos de escape ANSI de cor.
 use owo_colors::OwoColorize;
 
 // Teto e piso de duração de uma sessão (ver `duracao_sessao`): sessões que
@@ -14,6 +28,10 @@ use owo_colors::OwoColorize;
 pub const TETO_HORAS: f64 = 4.0;
 pub const MINIMO_HORAS: f64 = 1.0 / 60.0;
 
+// Formata um número grande de forma compacta (1.5K, 2.3M, 1.2B), para caber
+// nas colunas estreitas do dashboard sem estourar o alinhamento. Os `if/else`
+// testam da maior escala para a menor, na ordem, e o primeiro que bater
+// decide o divisor e o sufixo.
 // `valor as i64` trunca a parte fracionária: como só entramos aqui abaixo
 // de 1000, não perdemos nada que importe pro relatório.
 pub fn numero_compacto(valor: f64) -> String {
@@ -28,10 +46,16 @@ pub fn numero_compacto(valor: f64) -> String {
     }
 }
 
+// Converte horas fracionárias (ex: 1.5) para o formato "1h30m" usado em todo
+// o dashboard. Trabalha em minutos inteiros para não ter que lidar com
+// arredondamento de segundos na formatação final.
 pub fn formatar_horas(horas: f64) -> String {
     // `.round()` evita que erros de ponto flutuante (ex: 1.4999999999)
     // arredondem minutos pra baixo por acidente.
     let minutos_totais = (horas * 60.0).round() as i64;
+    // `{:02}` no segundo argumento: preenche com zero à esquerda até 2
+    // dígitos (ex: "05" em vez de "5"), para os minutos sempre ocuparem duas
+    // colunas ("1h05m", não "1h5m").
     format!("{}h{:02}m", minutos_totais / 60, minutos_totais % 60)
 }
 
@@ -65,12 +89,21 @@ fn aplicar_cor(nivel: u8, texto: &str) -> String {
     }
 }
 
+// Desenha uma barra horizontal de blocos "█" proporcional a `valor/maximo`,
+// usada nas seções "Por semana"/"Por dia" do dashboard. `largura_max` é o
+// comprimento (em caracteres) que representa 100%. Com `cores = true`, a
+// barra inteira ganha uma única cor conforme a intensidade do valor (ver
+// `aplicar_cor`/`nivel_intensidade`); sem cor, é só texto puro.
 pub fn renderizar_barra(valor: f64, maximo: f64, largura_max: usize, cores: bool) -> String {
     let comprimento = if maximo > 0.0 {
         ((valor / maximo) * largura_max as f64).round() as usize
     } else {
         0
     };
+    // `.repeat(n)` cria uma nova `String` com o caractere repetido `n`
+    // vezes; `.min(largura_max)` é uma proteção contra arredondamento que
+    // ultrapasse o próprio máximo (ex: valor == maximo com erro de ponto
+    // flutuante).
     let barra = "█".repeat(comprimento.min(largura_max));
     if cores {
         aplicar_cor(nivel_intensidade(valor, maximo), &barra)
@@ -182,13 +215,25 @@ pub struct Streaks {
     pub recorde: u32,
 }
 
+// Calcula a sequência (streak) de dias consecutivos com atividade: o
+// recorde histórico e a sequência atual (contando a partir de "hoje" pra
+// trás). Recebe `hoje` como parâmetro (em vez de chamar `Local::now()`
+// internamente) para a função ficar pura e testável com qualquer data fixa.
 pub fn calcular_streaks(dias_ativos: &BTreeSet<NaiveDate>, hoje: NaiveDate) -> Streaks {
     let mut recorde = 0u32;
     let mut sequencia = 0u32;
+    // `Option<NaiveDate>`: `None` antes da primeira iteração (não há "dia
+    // anterior" ainda); vira `Some` a partir da primeira volta do loop.
     let mut anterior: Option<NaiveDate> = None;
 
     // `BTreeSet` já itera em ordem crescente — não precisamos ordenar.
+    // `&dia` desestrutura a referência que o `for` dá sobre cada elemento do
+    // set (iterar um `BTreeSet<NaiveDate>` empresta `&NaiveDate`; como
+    // `NaiveDate` é `Copy`, `&dia` no padrão já copia o valor para `dia`).
     for &dia in dias_ativos {
+        // `match` sobre o `Option`: só incrementa a sequência se existir dia
+        // anterior E ele for exatamente um dia antes do atual; qualquer
+        // outro caso (primeiro dia, ou um "buraco" no meio) reinicia em 1.
         match anterior {
             Some(dia_anterior) if dia == dia_anterior + Duration::days(1) => sequencia += 1,
             _ => sequencia = 1,
@@ -209,12 +254,24 @@ pub fn calcular_streaks(dias_ativos: &BTreeSet<NaiveDate>, hoje: NaiveDate) -> S
     Streaks { atual, recorde }
 }
 
+// Calcula os limiares de tokens (percentis 25/50/75) usados para decidir a
+// cor de cada célula do heatmap (ver `nivel_atividade`). Devolve um array de
+// tamanho fixo `[i64; 3]` (não um `Vec`) porque são sempre exatamente três
+// valores — o tipo já documenta isso no retorno.
 pub fn limiares_atividade(tokens_por_dia: &BTreeMap<NaiveDate, i64>) -> [i64; 3] {
+    // `.values()` itera só os valores do mapa (ignora as chaves/datas);
+    // `.copied()` transforma o iterador de `&i64` em `i64` (o tipo é `Copy`,
+    // então copiar é barato e evita lidar com referências daqui em diante);
+    // `.filter(...)` descarta dias sem atividade real; `.collect()` junta
+    // tudo num `Vec` novo, já que precisamos ordenar (`BTreeMap` não permite
+    // reordenar só os valores).
     let mut valores: Vec<i64> = tokens_por_dia
         .values()
         .copied()
         .filter(|&tokens| tokens > 0)
         .collect();
+    // `sort_unstable`: mais rápido que `sort` porque não preserva a ordem
+    // relativa de elementos iguais — irrelevante aqui, já que são só números.
     valores.sort_unstable();
 
     if valores.is_empty() {
@@ -223,7 +280,9 @@ pub fn limiares_atividade(tokens_por_dia: &BTreeMap<NaiveDate, i64>) -> [i64; 3]
 
     let n = valores.len();
     // Mesmos percentis (25/50/75) do protótipo Python, aplicados sobre os
-    // dias com atividade real.
+    // dias com atividade real. `indice_percentil` é uma closure que captura
+    // `valores`/`n` por referência (só lê, não move) e devolve o valor no
+    // índice correspondente ao percentil pedido.
     let indice_percentil = |p: f64| valores[(((n - 1) as f64) * p) as usize];
     [
         indice_percentil(0.25),
@@ -232,6 +291,10 @@ pub fn limiares_atividade(tokens_por_dia: &BTreeMap<NaiveDate, i64>) -> [i64; 3]
     ]
 }
 
+// Classifica um dia em um dos 5 níveis de intensidade (0 = sem dado, 1..4 =
+// crescente) usados na cor da célula do heatmap. `tokens` é `Option`
+// porque um dia pode simplesmente não ter entrada no mapa (nenhuma
+// atividade registrada, diferente de "atividade zero").
 pub fn nivel_atividade(tokens: Option<i64>, limiares: &[i64; 3]) -> u8 {
     // `match` com guardas (`if tokens <= ...`): cada braço testa uma faixa,
     // na ordem, até achar a primeira que bate.
@@ -256,16 +319,32 @@ fn domingo_da_semana(dia: NaiveDate) -> NaiveDate {
     dia - Duration::days(dia.weekday().num_days_from_sunday() as i64)
 }
 
+// Monta a linha de cabeçalho do heatmap com as abreviações de mês (ex:
+// "Jun    Jul") alinhadas sobre a coluna da semana em que o mês começa.
+// `primeiro_domingo` é o domingo da semana mais à esquerda do heatmap;
+// `semanas` é o número de colunas (uma por semana).
 fn linha_dos_meses(primeiro_domingo: NaiveDate, semanas: u32) -> String {
+    // Um `Vec<char>` de espaços, uma célula por semana — vamos sobrescrever
+    // só as posições onde um rótulo de mês começa.
     let mut celulas = vec![' '; semanas as usize];
+    // Rastreia o mês da última semana processada; `None` no início força a
+    // primeira semana a sempre escrever seu rótulo.
     let mut mes_anterior: Option<u32> = None;
 
     for semana in 0..semanas {
         let dia = primeiro_domingo + Duration::weeks(semana as i64);
+        // Só escreve o rótulo quando o mês muda em relação à semana
+        // anterior — senão "Jun" apareceria repetido em toda coluna daquele
+        // mês.
         if Some(dia.month()) != mes_anterior {
             let rotulo = MESES[dia.month0() as usize];
+            // `.chars().enumerate()`: percorre cada letra do rótulo junto
+            // com seu deslocamento (0, 1, 2...), para espalhar "Jun" pelas
+            // colunas seguintes à da mudança de mês.
             for (deslocamento, letra) in rotulo.chars().enumerate() {
                 let coluna = semana as usize + deslocamento;
+                // Protege contra o rótulo estourar a última coluna do
+                // heatmap (ex: mês muda na penúltima semana).
                 if coluna < semanas as usize {
                     celulas[coluna] = letra;
                 }
@@ -274,9 +353,14 @@ fn linha_dos_meses(primeiro_domingo: NaiveDate, semanas: u32) -> String {
         }
     }
 
+    // `into_iter().collect()`: reconstrói uma `String` a partir do
+    // `Vec<char>`, consumindo o vetor (não precisamos mais dele).
     celulas.into_iter().collect()
 }
 
+// Devolve o caractere (colorido ou não) que representa um nível de
+// atividade (0..4) numa célula do heatmap. Índice no array é o próprio
+// `nivel` — por isso os arrays de paleta/símbolos têm exatamente 5 posições.
 fn celula_heatmap(nivel: u8, cores: bool) -> String {
     if cores {
         // Paleta verde crescente (5 tons), independente da paleta de barras
@@ -296,6 +380,11 @@ fn celula_heatmap(nivel: u8, cores: bool) -> String {
     }
 }
 
+// Monta o heatmap completo (estilo GitHub contributions): uma grade de
+// `semanas` colunas por 7 linhas (domingo a sábado), mais a linha de meses
+// no topo e a legenda "Menos ... Mais" embaixo. Devolve um `Vec<String>`
+// (uma entrada por linha de terminal) para quem chama decidir como juntar
+// (aqui, `renderizar_dashboard` concatena com `\n`).
 pub fn renderizar_heatmap(
     tokens_por_dia: &BTreeMap<NaiveDate, i64>,
     semanas: u32,
@@ -303,16 +392,23 @@ pub fn renderizar_heatmap(
     cores: bool,
 ) -> Vec<String> {
     let domingo_atual = domingo_da_semana(hoje);
+    // A primeira coluna do heatmap é `semanas - 1` semanas antes da atual
+    // (ex: com `semanas = 12`, mostramos a semana atual mais as 11
+    // anteriores).
     let primeiro_domingo = domingo_atual - Duration::weeks((semanas - 1) as i64);
     let limiares = limiares_atividade(tokens_por_dia);
 
+    // `vec![...]` com um único elemento: a linha de meses já entra como
+    // primeira linha do resultado; as linhas de dias da semana são
+    // adicionadas (`push`) depois, uma por vez.
     let mut linhas = vec![format!(
         "      {}",
         linha_dos_meses(primeiro_domingo, semanas)
     )];
 
     // Domingo=0 .. sábado=6, igual ao `weekday()` do chrono com
-    // `num_days_from_sunday`.
+    // `num_days_from_sunday`. Só rotulamos Seg/Qua/Sex (dias alternados)
+    // para não poluir a lateral esquerda do heatmap.
     let rotulos_dias = ["   ", "Seg", "   ", "Qua", "   ", "Sex", "   "];
     for deslocamento_dia in 0..7u32 {
         let mut linha = format!("  {} ", rotulos_dias[deslocamento_dia as usize]);
@@ -320,16 +416,27 @@ pub fn renderizar_heatmap(
             let dia = primeiro_domingo
                 + Duration::weeks(semana as i64)
                 + Duration::days(deslocamento_dia as i64);
+            // Dias no futuro (além de "hoje") não têm como ter atividade —
+            // deixamos a célula em branco em vez de mostrar nível 0 (que
+            // representaria "sem atividade" num dia que já passou).
             if dia > hoje {
                 linha.push(' ');
                 continue;
             }
+            // `.get(&dia).copied()`: `get` devolve `Option<&i64>`; `.copied()`
+            // converte para `Option<i64>` (o valor é `Copy`), que é o que
+            // `nivel_atividade` espera — `None` natural quando o dia não
+            // está no mapa (sem atividade registrada).
             let nivel = nivel_atividade(tokens_por_dia.get(&dia).copied(), &limiares);
             linha.push_str(&celula_heatmap(nivel, cores));
         }
         linhas.push(linha);
     }
 
+    // Legenda: uma célula de cada nível (0 a 4), do "menos" ao "mais"
+    // intenso. `(0..5).map(...)` gera os cinco níveis e `.collect()` junta
+    // as células (cada uma já é uma `String`, possivelmente colorida) numa
+    // única `String`.
     let legenda: String = (0..5).map(|nivel| celula_heatmap(nivel, cores)).collect();
     linhas.push(format!("      Menos {legenda} Mais"));
     linhas
@@ -420,6 +527,8 @@ pub struct ModeloUso {
 }
 
 impl ModeloUso {
+    // Soma os quatro tipos de token num único total — usado na tabela de
+    // modelos e no gráfico de pizza (cada fatia é o total de um modelo).
     pub fn tokens_totais(&self) -> i64 {
         self.tokens_entrada
             + self.tokens_cache_escrita
@@ -427,6 +536,8 @@ impl ModeloUso {
             + self.tokens_saida
     }
 
+    // Análogo a `tokens_totais`, mas somando as quatro parcelas de custo em
+    // dólar.
     pub fn custo_total(&self) -> f64 {
         self.custo_entrada + self.custo_cache_escrita + self.custo_cache_leitura + self.custo_saida
     }
@@ -498,17 +609,37 @@ pub fn renderizar_dashboard(
     cores: bool,
     top_dias: Option<usize>,
 ) -> String {
+    // `Local::now()` pega o instante atual no fuso horário local da
+    // máquina; `.date_naive()` descarta a hora, ficando só com a data —
+    // é o "hoje" usado tanto no heatmap quanto no cálculo de streak.
     let hoje = Local::now().date_naive();
+    // `.keys()` itera só as datas do mapa (ignora os valores de tokens);
+    // `.copied()` tira a referência (`NaiveDate` é `Copy`); `.collect()`
+    // monta um `BTreeSet` novo — perdemos a contagem de tokens de propósito,
+    // aqui só interessa "quais dias tiveram alguma atividade".
     let dias_ativos: BTreeSet<NaiveDate> = tokens_por_dia.keys().copied().collect();
     let streaks = calcular_streaks(&dias_ativos, hoje);
 
     let por_dia = agregar_por_dia(sessoes);
     let por_semana = agregar_por_semana(sessoes);
 
+    // `.values()` itera as tuplas `(horas, sessões)`/`(horas, sessões, dias)`
+    // agregadas; `.map(|(h, _)| h)` extrai só o campo de horas, descartando
+    // o resto da tupla; `.sum()` soma tudo num único `f64`.
     let total_horas: f64 = por_dia.values().map(|(h, _)| h).sum();
+    // `.fold(0.0, f64::max)`: percorre os valores acumulando o maior já
+    // visto, começando de `0.0`. Preferimos `fold` a `.max()` do iterador
+    // porque `f64` não implementa `Ord` (por causa de `NaN`), então o
+    // `Iterator::max()` padrão não compila para `f64` sem um comparador
+    // explícito — `f64::max` já resolve isso tratando `NaN` de forma
+    // definida.
     let max_dia = por_dia.values().map(|(h, _)| *h).fold(0.0, f64::max);
     let max_semana = por_semana.values().map(|(h, _, _)| *h).fold(0.0, f64::max);
 
+    // `.ok()`: converte o `Result<f64, _>` da busca de câmbio num
+    // `Option<f64>`, descartando o erro específico — aqui só nos importa se
+    // deu certo ou não (a seção de custo total decide o que exibir com
+    // `match taxa_brl`, mais abaixo).
     let taxa_brl = crate::ai::cambio::buscar_taxa_usd_brl().ok();
 
     // `.bold()` sempre emite o escape ANSI, mesmo sem cor — por isso o
@@ -552,6 +683,9 @@ pub fn renderizar_dashboard(
     // saída) — a linha seguinte detalha essa soma pelos quatro tipos,
     // usando os mesmos totais agregados por modelo mostrados mais abaixo.
     let total_tokens: i64 = tokens_por_dia.values().sum();
+    // Mesmo padrão `iter().map(campo).sum()` repetido quatro vezes: para
+    // cada tipo de cobrança, percorre todos os modelos (`.iter()` empresta
+    // cada `ModeloUso`, sem consumir o slice) e soma aquele campo isolado.
     let tokens_entrada_total: i64 = modelos.iter().map(|m| m.tokens_entrada).sum();
     let tokens_cache_escrita_total: i64 = modelos.iter().map(|m| m.tokens_cache_escrita).sum();
     let tokens_cache_leitura_total: i64 = modelos.iter().map(|m| m.tokens_cache_leitura).sum();
@@ -666,16 +800,34 @@ pub fn renderizar_dashboard(
     // reaproveita o que já foi processado).
     saida.push_str("\n  [Modelos usados]\n\n");
 
+    // Cadeia `filter` → `map` → `collect`: primeiro descarta modelos sem
+    // nenhum token (não fazem fatia), depois transforma cada `ModeloUso`
+    // sobrevivente em uma tupla `(nome, total_de_tokens)` — o formato que
+    // `renderizar_pizza` espera. `m.modelo.clone()`: `m` é só uma referência
+    // emprestada do slice `modelos` (o dashboard não é dono dos dados), então
+    // para colocar o nome dentro do novo `Vec<(String, f64)>` (que precisa
+    // ser dono do próprio conteúdo) é preciso copiar a `String`, não apenas
+    // emprestá-la.
     let mut fatias_pizza: Vec<(String, f64)> = modelos
         .iter()
         .filter(|m| m.tokens_totais() > 0)
         .map(|m| (m.modelo.clone(), m.tokens_totais() as f64))
         .collect();
+    // Ordena as fatias da maior pra menor (`b` antes de `a` no
+    // `partial_cmp` inverte a ordem natural crescente). `f64` não tem `Ord`
+    // total (por causa de `NaN`), só `PartialOrd` — por isso `partial_cmp`
+    // devolve `Option<Ordering>`, e o `unwrap_or(Equal)` trata o caso
+    // (que não deveria ocorrer aqui, já que tokens nunca são `NaN`) tratando
+    // como empate em vez de arriscar um panic.
     fatias_pizza.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     const RAIO_PIZZA: i32 = 6;
     let pizza = renderizar_pizza(&fatias_pizza, RAIO_PIZZA, cores);
     let total_pizza: f64 = fatias_pizza.iter().map(|(_, v)| *v).sum();
+    // `.enumerate()` empareia cada item com seu índice (0, 1, 2...) — aqui
+    // precisamos do índice para escolher o mesmo símbolo/cor usados na
+    // fatia correspondente do desenho (`renderizar_pizza` cicla os mesmos
+    // arrays na mesma ordem).
     let legenda_pizza: Vec<String> = fatias_pizza
         .iter()
         .enumerate()
@@ -704,8 +856,17 @@ pub fn renderizar_dashboard(
     // Linha em branco (mesma largura visível do desenho) pra alinhar a
     // legenda quando ela tem mais linhas que a pizza, ou vice-versa.
     let linha_vazia_pizza = " ".repeat((RAIO_PIZZA * 4 + 1) as usize);
+    // O desenho da pizza (altura fixa `2*raio+1`) e a legenda (uma linha por
+    // modelo) quase nunca têm o mesmo número de linhas — usamos o maior dos
+    // dois como número de iterações, para nenhuma linha "sobrando" de
+    // qualquer um dos lados ficar de fora.
     let linhas_pizza = pizza.len().max(legenda_pizza.len());
     for i in 0..linhas_pizza {
+        // `.get(i)` devolve `Option<&String>` (evita panic se um dos lados
+        // já acabou); `.map(String::as_str)` converte para `Option<&str>`
+        // (a assinatura de `unwrap_or` pede o mesmo tipo dos dois lados);
+        // `.unwrap_or(&linha_vazia_pizza)` preenche com espaços em branco do
+        // tamanho certo quando a pizza já terminou mas a legenda continua.
         let esquerda = pizza
             .get(i)
             .map(String::as_str)
@@ -792,6 +953,10 @@ pub fn renderizar_dashboard(
         }
     };
 
+    // `match` sobre o `Option<f64>` calculado lá em cima: com cotação
+    // disponível, mostra os dois valores (USD e BRL já convertido); sem
+    // cotação (a chamada de rede falhou), mostra só o dólar com um aviso —
+    // o relatório nunca falha por causa da API de câmbio estar fora.
     match taxa_brl {
         Some(taxa) => saida.push_str(&format!(
             "\n  Custo total: US$ {:.2}  (R$ {:.2})\n",
@@ -838,6 +1003,9 @@ pub fn renderizar_dashboard(
         ));
     }
 
+    // `trim_end`: remove as quebras de linha finais acumuladas pelos vários
+    // `push_str`/`push('\n')` ao longo da função — quem imprime (`ai/*.rs`)
+    // decide o espaçamento final, então devolvemos o texto "limpo" na ponta.
     saida.trim_end().to_string()
 }
 

@@ -9,11 +9,21 @@
 // Manter o cálculo separado do efeito é um padrão que facilita testar e raciocinar.
 
 use std::collections::BTreeMap;
+// `BufRead` traz o método `.lines()` para leitores bufferizados (usado no
+// modo `-f`, lendo o stdout do processo filho linha a linha).
 use std::io::BufRead;
+// `Write` traz o método `.flush()`, usado para forçar a stdout bufferizada a
+// aparecer imediatamente no terminal (ver comentários mais abaixo).
 use std::io::Write;
 use std::path::PathBuf;
+// `Duration` representa um intervalo de tempo (usado no `sleep` do modo
+// `--watch`); `SystemTime`/`UNIX_EPOCH` servem para calcular o timestamp Unix
+// (segundos desde 1970) que guardamos no banco como `collected_at`.
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+// `Args`/`Subcommand`: macros de derive do clap que geram, a partir dos
+// campos/variantes anotados, o parser de linha de comando (flags, posicionais,
+// valores default, help text) sem precisarmos escrever isso à mão.
 use clap::Args;
 use clap::Subcommand;
 // Trait de extensão do `owo-colors`: ao importá-la, todo tipo que implementa
@@ -37,6 +47,11 @@ const NIVEIS_CONHECIDOS: [&str; 6] = ["INFO", "DEBG", "WARN", "CRIT", "ERRO", "T
 const PALAVRAS_CHAVE: [&str; 4] = ["error", "warn", "info", "debug"];
 
 /// Comandos de log.
+// `#[derive(Args, Debug)]`: `Args` faz o clap tratar esta struct como um
+// grupo de argumentos (aqui, apenas o subcomando aninhado); `Debug` gera
+// automaticamente a impressão `{:?}`, útil para inspecionar em depuração.
+// `#[command(help_template = ...)]` troca o texto de ajuda padrão do clap
+// pelo template compartilhado definido em `crate::help`.
 #[derive(Args, Debug)]
 #[command(help_template = crate::help::SUBCOMANDOS)]
 pub struct LogsArgs {
@@ -59,6 +74,9 @@ impl LogsArgs {
 }
 
 /// Subcomandos de `logs`.
+// `#[derive(Subcommand, Debug)]`: `Subcommand` faz o clap gerar o parser que
+// decide qual variante (e portanto qual `*Args`) instanciar a partir da
+// palavra digitada pelo usuário (`stats`, `containers` ou `remote`).
 #[derive(Subcommand, Debug)]
 enum LogsCommands {
     /// Estatísticas de logs de containers (arquivos supervisord).
@@ -77,6 +95,10 @@ pub struct StatsArgs {
     #[arg(help_heading = crate::help::ARGUMENTOS_HEADING)]
     container: Option<String>,
     /// Caminho do diretório com os logs dos containers.
+    // `#[arg(long, default_value = "dados/logs", ...)]`: `long` expõe o campo
+    // como `--path <valor>`; `default_value` faz o clap preencher `path`
+    // automaticamente quando a flag não é passada, então o campo não precisa
+    // ser `Option<PathBuf>`.
     #[arg(long, default_value = "dados/logs", help_heading = crate::help::OPCOES)]
     path: PathBuf,
 }
@@ -224,9 +246,15 @@ pub struct RemoteArgs {
     host: String,
     /// Quantidade de linhas do final de cada container (últimas N linhas).
     /// Ignorado quando `--db` está ativo usa incremental `--since`.
+    // `default_value_t = 1000`: variante de `default_value` para tipos que já
+    // implementam `Default`/`FromStr` numéricos; evita ter que escrever "1000"
+    // como string e deixar o clap fazer o parse.
     #[arg(long, default_value_t = 1000)]
     tail: usize,
     /// Caminho do banco SQLite para armazenamento incremental.
+    // Sem `default_value`, um `#[arg(long)]` sobre `Option<T>` fica `None`
+    // quando a flag não é passada — é assim que sabemos, mais abaixo, se o
+    // usuário pediu persistência ou não.
     #[arg(long)]
     db: Option<PathBuf>,
     /// Modo contínuo: coleta a cada 5 minutos (requer --db).
@@ -239,6 +267,10 @@ pub struct RemoteArgs {
 
 impl RemoteArgs {
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
+        // `let ... else`: tenta desestruturar o `Option`; se for `None`, o
+        // bloco `else` OBRIGATORIAMENTE desvia o fluxo (aqui, com `return`)
+        // antes de chegar na linha seguinte — diferente de `if let`, não há
+        // como "continuar" sem um `db_path` válido depois deste ponto.
         let Some(db_path) = &self.db else {
             // Modo original: one-shot sem persistência
             let containers = if let Some(container) = &self.container {
@@ -261,16 +293,26 @@ impl RemoteArgs {
         };
 
         // Modo com banco: coleta incremental + persistência
+        // `Connection::open` cria o arquivo SQLite se ele não existir ainda.
         let conn = Connection::open(db_path)?;
         init_db(&conn)?;
 
         // Se o DB está vazio ou o usuário quer TUI, fazemos uma coleta agora
+        // `query_row` executa um SELECT que devolve no máximo 1 linha; o
+        // closure `|r| r.get::<_, i64>(0)` extrai a coluna 0 como `i64`
+        // (a "turbofish" `::<_, i64>` diz ao rusqlite o tipo esperado).
+        // `unwrap_or(0)`: se a consulta falhar (ex.: tabela ainda sem uso),
+        // tratamos como "0 linhas" em vez de propagar erro aqui.
         let db_vazio = conn
             .query_row("SELECT COUNT(*) FROM containers", [], |r| r.get::<_, i64>(0))
             .unwrap_or(0)
             == 0;
 
         if db_vazio || !self.tui {
+            // `duration_since(UNIX_EPOCH)` dá o tempo decorrido desde a
+            // "época Unix" (1970-01-01); `.as_secs()` extrai os segundos.
+            // `unwrap_or_default()` cai para `Duration::ZERO` no caso (bem
+            // improvável) do relógio do sistema estar antes de 1970.
             let agora = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -280,6 +322,9 @@ impl RemoteArgs {
 
             // 1. Descobre containers rodando e detecta paradas/restart
             let rodando = listar_containers_remoto(&self.host)?;
+            // `iter()` empresta cada `ContainerRemoto` (sem consumir `rodando`,
+            // que ainda usamos logo abaixo); `.clone()` copia só a `String`
+            // do nome para o novo `Vec`.
             let nomes_rodando: Vec<String> = rodando.iter().map(|c| c.nome.clone()).collect();
             let alertas = verificar_status_containers(&conn, &nomes_rodando, agora)?;
             for alerta in &alertas {
@@ -288,6 +333,10 @@ impl RemoteArgs {
 
             // 2. Coleta incremental dos que estão rodando
             for c in &rodando {
+                // `rusqlite::params![...]` monta os valores para os `?1`, `?2`
+                // etc. da query, escapando-os corretamente (evita SQL
+                // injection). `COALESCE(..., 0)` troca `NULL` por `0` direto
+                // no SQL, então o `.get(0)` sempre recebe um inteiro.
                 let ultima_coleta: i64 = conn
                     .query_row(
                         "SELECT COALESCE(last_collected_at, 0) FROM containers WHERE name = ?1",
@@ -304,11 +353,17 @@ impl RemoteArgs {
 
                 // Extrai linhas categorizadas por nível e persiste no banco
                 let grupos = categorizar_por_nivel(&conteudo);
+                // Reduz cada grupo (nível -> Vec<linha>) à sua contagem
+                // (nível -> quantidade); `v.len()` é O(1) num `Vec`.
                 let niveis: BTreeMap<String, usize> =
                     grupos.iter().map(|(k, v)| (k.clone(), v.len())).collect();
 
                 armazenar_contagens(&conn, &c.nome, &niveis, agora)?;
                 armazenar_linhas(&conn, &c.nome, &grupos, agora)?;
+                // `INSERT OR REPLACE`: se já existe uma linha com essa chave
+                // primária (`name`), o SQLite substitui a linha inteira em vez
+                // de falhar por violar unicidade — é o "upsert" mais simples
+                // do SQLite.
                 conn.execute(
                     "INSERT OR REPLACE INTO containers (name, status, last_collected_at, uptime, criado_em) VALUES (?1, 'running', ?2, ?3, ?4)",
                     rusqlite::params![c.nome, agora, c.status, c.criado_em],
@@ -324,13 +379,23 @@ impl RemoteArgs {
                 }
 
                 // Modo --watch: limpa, exibe painel e espera 5 min
+                // "\x1b[2J" (limpa a tela) + "\x1b[H" (move o cursor para o
+                // canto superior esquerdo) são sequências de escape ANSI —
+                // truque comum para simular um "dashboard" que se redesenha.
                 print!("\x1b[2J\x1b[H{}", saida.trim_end());
+                // `print!` só escreve no buffer interno da stdout; sem
+                // `flush()` o terminal pode não mostrar nada até o processo
+                // encerrar ou o buffer encher. O `?` propaga qualquer erro de
+                // IO ao tentar escrever (raro, mas possível).
                 std::io::stdout().flush()?;
+                // Bloqueia esta thread (a única do programa aqui) por 5
+                // minutos antes de seguir para a próxima instrução.
                 std::thread::sleep(Duration::from_secs(300));
             }
         }
 
-        // Modo TUI
+        // Modo TUI: entrega o controle do terminal para a interface
+        // interativa (só retorna quando o usuário sai dela).
         crate::tui::run_tui(&conn)?;
         Ok(String::new())
     }
@@ -368,10 +433,15 @@ fn init_db(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Migração: adiciona colunas que podem não existir em DBs criados antes
+    // (o `CREATE TABLE IF NOT EXISTS` acima não altera tabelas já existentes).
+    // `&[...]` é um array de literais `&str` percorrido por referência.
     for sql in &[
         "ALTER TABLE containers ADD COLUMN uptime TEXT DEFAULT ''",
         "ALTER TABLE containers ADD COLUMN criado_em TEXT DEFAULT ''",
     ] {
+        // `let _ = ...` descarta o `Result` de propósito: se a coluna já
+        // existir, o SQLite retorna erro e é exatamente isso que ignoramos
+        // aqui (idempotência da migração), sem propagar para o `?` do retorno.
         let _ = conn.execute(sql, []);
     }
 
@@ -385,8 +455,14 @@ fn armazenar_contagens(
     niveis: &BTreeMap<String, usize>,
     agora: i64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // `prepare` compila o SQL uma única vez; `stmt.execute` é chamado depois
+    // dentro do loop, reaproveitando a mesma statement preparada (mais
+    // eficiente do que preparar um SQL novo a cada nível).
     let mut stmt =
         conn.prepare("INSERT INTO log_counts (container_name, level, count, collected_at) VALUES (?1, ?2, ?3, ?4)")?;
+    // `for (nivel, &quantidade) in niveis`: itera pelas entradas do
+    // `BTreeMap` desestruturando a tupla `(&String, &usize)`; o padrão
+    // `&quantidade` copia o `usize` para fora da referência (tipo `Copy`).
     for (nivel, &quantidade) in niveis {
         if quantidade > 0 {
             stmt.execute(rusqlite::params![nome, nivel, quantidade as i64, agora])?;
@@ -452,6 +528,10 @@ fn verificar_status_containers(
     let mut stmt = conn.prepare(
         "SELECT name FROM containers WHERE status = 'running'",
     )?;
+    // `query_map` devolve um iterador de `Result<String, rusqlite::Error>`
+    // (uma linha pode falhar ao ser convertida). `filter_map(|r| r.ok())`
+    // descarta silenciosamente qualquer linha com erro e mantém só os `Ok`,
+    // convertendo cada `Result` em `Option` e já "achatando" o iterador.
     let conhecidos: Vec<String> = stmt
         .query_map([], |row| row.get(0))?
         .filter_map(|r| r.ok())
@@ -473,6 +553,9 @@ fn verificar_status_containers(
 
     // Containers rodando agora mas estavam stopped → reiniciaram
     for nome in rodando {
+        // `.ok()` converte o `Result<String, _>` em `Option<String>`,
+        // tratando "não achei essa linha" e "erro de SQL" da mesma forma:
+        // simplesmente `None` (sem status anterior conhecido).
         let status_anterior: Option<String> = conn
             .query_row(
                 "SELECT status FROM containers WHERE name = ?1",
@@ -481,6 +564,12 @@ fn verificar_status_containers(
             )
             .ok();
 
+        // Let chain (edition 2024): só entra no bloco se `status_anterior`
+        // for `Some` E o valor dentro for exatamente "stopped" — equivalente
+        // a um `if aninhado`, mas sem o aninhamento (evita o lint
+        // `collapsible_if`). `.as_ref()` empresta o `String` de dentro do
+        // `Option` em vez de movê-lo, porque ainda usamos `status_anterior`
+        // implicitamente via `status` logo abaixo.
         if let Some(status) = status_anterior.as_ref() && status == "stopped" {
             conn.execute(
                 "INSERT INTO alerts (container_name, alert_type, message, created_at) VALUES (?1, 'restarted', ?2, ?3)",
@@ -502,7 +591,12 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
          ORDER BY container_name, level",
     )?;
 
+    // Mapa aninhado: container -> (nível -> total). O `BTreeMap` externo dá
+    // ordem alfabética por container; o interno, por nível.
     let mut dados: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    // O closure de `query_map` roda por linha e pode falhar em cada `row.get`
+    // (tipo errado, coluna ausente); por isso ele próprio devolve `Result`,
+    // e usamos `?` dentro dele para propagar esse erro por linha.
     let linhas = stmt.query_map([], |row| {
         let nome: String = row.get(0)?;
         let nivel: String = row.get(1)?;
@@ -511,13 +605,22 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
     })?;
 
     for linha in linhas {
+        // Aqui o `?` é sobre o `Result` de CADA linha (o iterador de
+        // `query_map` produz `Result<(...), Error>`), não sobre o closure
+        // acima.
         let (nome, nivel, total) = linha?;
+        // API `entry`: garante um `BTreeMap` vazio para containers novos
+        // antes de inserir o par nível/total.
         dados.entry(nome).or_default().insert(nivel, total);
     }
 
     // Carrega o status (uptime) de cada container do banco
     let mut stmt2 = conn.prepare("SELECT name, uptime FROM containers WHERE uptime IS NOT NULL AND uptime != ''")?;
     let mut status_map: BTreeMap<String, String> = BTreeMap::new();
+    // `.flatten()` sobre um iterador de `Result<(String, String), Error>`
+    // funciona porque `Result` também implementa `IntoIterator` (0 ou 1
+    // item): `Ok(x)` vira um iterador de 1 elemento, `Err(_)` vira vazio —
+    // é uma forma mais curta de "ignore os erros e siga com os `Ok`".
     for row in stmt2.query_map([], |r| {
         let n: String = r.get(0)?;
         let s: String = r.get(1)?;
@@ -754,8 +857,17 @@ fn obter_logs(nome: &str) -> Result<String, Box<dyn std::error::Error>> {
 // só o texto visível. `container logs` colore a saída, o que atrapalharia a
 // busca pelo token do nível se não fosse removido antes.
 fn remover_ansi(linha: &str) -> String {
+    // `with_capacity` pré-aloca o buffer no tamanho da linha original: como
+    // só removemos caracteres, o resultado nunca é maior, evitando
+    // realocações durante os `push`.
     let mut limpa = String::with_capacity(linha.len());
+    // `chars()` é um iterador sobre os `char` (Unicode) da string; guardamos
+    // ele numa variável `mut` porque o `for` interno (`chars.by_ref()`)
+    // precisa avançá-lo manualmente, então não pode ser um `for` simples aqui.
     let mut chars = linha.chars();
+    // `while let Some(c) = chars.next()`: repete enquanto o iterador ainda
+    // devolver itens; equivale a um `for c in chars` de baixo nível, mas
+    // permite avançar o iterador "extra" dentro do laço (no `by_ref()` abaixo).
     while let Some(c) = chars.next() {
         if c == '\u{1b}' {
             // Descarta tudo até o 'm' que fecha o código de escape (formato

@@ -4,11 +4,22 @@
 // (ver skill `claude-api` do harness pra conferir os valores atuais antes de
 // confiar cegamente num número antigo).
 
+/// Preço de um modelo em dólares por milhão de tokens ("mtok" = 1_000_000
+/// tokens), separado por direção do tráfego: `entrada_por_mtok` é o que a
+/// Anthropic cobra pelos tokens que enviamos (prompt), `saida_por_mtok` pelos
+/// tokens que o modelo gera (resposta) — sempre mais caro, porque gerar texto
+/// é mais custoso computacionalmente do que processar o que já foi lido.
 pub struct Preco {
     pub entrada_por_mtok: f64,
     pub saida_por_mtok: f64,
 }
 
+// Tabela de preços por nome de modelo. `&str` como chave do `match` compara
+// o texto exatamente; várias variantes (`"claude-opus-4-8" | "claude-opus-4-7" | ...`)
+// caem no mesmo braço porque tiveram o mesmo preço nas últimas revisões da
+// Anthropic. Devolve `Option<Preco>`: `None` quando o modelo não está
+// cadastrado aqui (modelo novo, nome digitado diferente, etc.) — quem chama
+// decide o que fazer na ausência (normalmente exibir "não estimado").
 pub fn preco_do_modelo(modelo: &str) -> Option<Preco> {
     match modelo {
         "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6" => Some(Preco {
@@ -66,6 +77,8 @@ pub struct CustoDetalhado {
 }
 
 impl CustoDetalhado {
+    /// Soma os quatro componentes de custo num único valor em USD.
+    /// `&self`: só lemos os campos, não precisamos consumir a struct.
     pub fn total(&self) -> f64 {
         self.entrada + self.cache_escrita + self.cache_leitura + self.saida
     }
@@ -81,17 +94,31 @@ pub fn calcular_custo_detalhado(
     tokens_cache_leitura: i64,
     tokens_saida: i64,
 ) -> Option<CustoDetalhado> {
+    // `?` no `Option`: se `preco_do_modelo` devolver `None` (modelo
+    // desconhecido), a função inteira retorna `None` aqui mesmo, sem
+    // precisarmos escrever um `match`/`if let` explícito.
     let preco = preco_do_modelo(modelo)?;
     // Recebe a taxa como parâmetro em vez de fixá-la: assim o mesmo cálculo
     // (tokens / 1M * taxa) serve pras quatro taxas diferentes abaixo, sem
-    // repetir a fórmula quatro vezes.
+    // repetir a fórmula quatro vezes. `|tokens: i64, taxa_por_mtok: f64| ...`
+    // é uma closure (função anônima) que captura nada do ambiente externo —
+    // só recebe os dois parâmetros e devolve o custo em dólares.
     let custo = |tokens: i64, taxa_por_mtok: f64| tokens as f64 / 1_000_000.0 * taxa_por_mtok;
+    // `tokens as f64`: conversão explícita de inteiro (`i64`, contagem exata
+    // de tokens) para ponto flutuante (`f64`), necessária porque o resultado
+    // da divisão por 1_000_000.0 é fracionário (ex.: 0.5 milhão de tokens).
+    // `Some(...)`: envolve o resultado no variante presente do `Option`,
+    // já que a função só chega até aqui quando o modelo foi encontrado.
     Some(CustoDetalhado {
         entrada: custo(tokens_entrada, preco.entrada_por_mtok),
+        // Cache write usa a MESMA taxa de entrada do modelo, só que
+        // multiplicada pelo fator de 1.25 (25% mais caro que entrada fresca).
         cache_escrita: custo(
             tokens_cache_escrita,
             preco.entrada_por_mtok * CACHE_ESCRITA_MULTIPLICADOR,
         ),
+        // Cache read usa a taxa de entrada multiplicada por 0.1 (90% mais
+        // barato que entrada fresca).
         cache_leitura: custo(
             tokens_cache_leitura,
             preco.entrada_por_mtok * CACHE_LEITURA_MULTIPLICADOR,
@@ -113,12 +140,21 @@ pub fn distribuir_custo_proporcional(
     tokens_cache_leitura: i64,
     tokens_saida: i64,
 ) -> CustoDetalhado {
+    // "Peso" aqui não é dólar, é uma unidade comum que reflete quanto cada
+    // tipo de token pesa relativo à entrada fresca (peso 1.0 por token de
+    // entrada). Cache write pesa mais (1.25x), cache read pesa menos (0.1x),
+    // e saída pesa `RAZAO_SAIDA_ENTRADA` (5x) porque é sempre mais cara.
+    // Multiplicar a contagem de tokens pelo peso dá o "tamanho" relativo de
+    // cada fatia do custo total.
     let peso_entrada = tokens_entrada as f64;
     let peso_cache_escrita = tokens_cache_escrita as f64 * CACHE_ESCRITA_MULTIPLICADOR;
     let peso_cache_leitura = tokens_cache_leitura as f64 * CACHE_LEITURA_MULTIPLICADOR;
     let peso_saida = tokens_saida as f64 * RAZAO_SAIDA_ENTRADA;
     let peso_total = peso_entrada + peso_cache_escrita + peso_cache_leitura + peso_saida;
 
+    // Guarda contra divisão por zero: sem nenhum token registrado, não há
+    // como saber a proporção — devolvemos tudo zerado em vez de um `NaN`
+    // (resultado de `0.0 / 0.0` em ponto flutuante).
     if peso_total <= 0.0 {
         return CustoDetalhado {
             entrada: 0.0,
@@ -128,6 +164,8 @@ pub fn distribuir_custo_proporcional(
         };
     }
 
+    // `fator` converte peso em dólares: é quanto vale "1 unidade de peso"
+    // para que a soma das quatro fatias bata exatamente com `custo_total`.
     let fator = custo_total / peso_total;
     CustoDetalhado {
         entrada: peso_entrada * fator,
@@ -137,6 +175,9 @@ pub fn distribuir_custo_proporcional(
     }
 }
 
+// `#[cfg(test)]`: este módulo só entra na compilação quando rodamos
+// `cargo test` — no binário final ele nem existe. `use super::*` traz tudo
+// do módulo pai (funções, structs e constantes) para o escopo dos testes.
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,13 +1,29 @@
 // Módulo do TUI (Terminal User Interface) para navegar nas estatísticas de
 // logs coletadas no SQLite. Três telas aninhadas com navegação por setas.
+//
+// Uma TUI difere de um programa de linha de comando comum porque ela assume
+// controle total do terminal: em vez de simplesmente imprimir texto e sair,
+// ela entra em "raw mode" (lê tecla a tecla, sem esperar Enter, sem eco
+// automático) e desenha numa "tela alternada" (um buffer separado do
+// histórico normal do terminal, restaurado ao sair — como o `vim` ou o
+// `htop` fazem). O programa fica preso num loop: desenha a tela, espera uma
+// tecla, atualiza o estado, desenha de novo — até o usuário pedir para sair.
 
 use std::collections::{BTreeMap, HashSet};
 
+// `crossterm` é a crate que abstrai o terminal de forma multiplataforma
+// (Linux/macOS/Windows): captura eventos de teclado e alterna entre o modo
+// "raw" e o modo normal do terminal.
 use crossterm::{
     event::{self, Event, KeyCode},
+    // A macro `execute!` escreve comandos de terminal (aqui, trocar de tela)
+    // diretamente no `stdout`, sem precisar montar uma string de escape ANSI
+    // manualmente.
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+// `ratatui` é a crate de "widgets" da TUI: sabe desenhar listas, bordas,
+// parágrafos etc. a partir de um `Frame` (a área de desenho de um quadro).
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -18,21 +34,35 @@ use rusqlite::Connection;
 
 // --- Modelo de dados -------------------------------------------------------
 
+// Dados de um container já resumidos, prontos para exibição: nome, contagem
+// de logs por nível (ordenada por nome do nível, graças ao `BTreeMap`) e o
+// texto de uptime que veio do banco (pode ser vazio se ainda não foi coletado).
 struct ContainerInfo {
     name: String,
     niveles: BTreeMap<String, i64>,
     uptime: String,
 }
 
+// As três telas da TUI, em ordem de "profundidade" de navegação:
+// Containers (lista de containers) -> Levels (níveis de log daquele
+// container) -> Lines (linhas de log daquele nível). Cada `Enter` avança uma
+// tela; `Esc`/`Backspace` volta uma tela.
 enum Screen {
     Containers,
     Levels,
     Lines,
 }
 
+// Todo o estado mutável da TUI vive nesta struct: qual tela está ativa e,
+// para cada tela, os dados carregados e qual item está selecionado. Como só
+// existe uma tela por vez, os campos das telas "Levels" e "Lines" ficam sem
+// uso enquanto o usuário está na tela "Containers" — uma alternativa mais
+// idiomática seria um enum com dados por variante (`Screen::Levels { niveles,
+// selected, .. }`), mas manter tudo "achatado" aqui simplifica o acesso.
 pub struct App {
     screen: Screen,
     containers: Vec<ContainerInfo>,
+    // Índice do container destacado na lista (não um ID: é a posição no Vec).
     selected_container: usize,
     // Tela de níveis
     niveles: Vec<(String, i64)>,
@@ -42,10 +72,19 @@ pub struct App {
     nome_do_nivel: String,
     linhas: Vec<String>,
     selected_linha: usize,
+    // Conjunto de índices das linhas que o usuário expandiu (Enter alterna
+    // entre versão truncada e completa). `HashSet` porque só nos importa
+    // "está expandida ou não", sem ordem nem valor associado.
     expanded: HashSet<usize>,
 }
 
 impl App {
+    // Carrega, de uma vez só, todos os containers e suas contagens por nível
+    // agregadas do banco (usado ao abrir a TUI). `.unwrap()` é aceitável aqui
+    // porque este é código de UI interativo (não uma lib), e um erro de SQL
+    // mal formado é um bug de programação, não uma condição esperada de
+    // runtime — ainda assim, note que a convenção do projeto é evitar
+    // `unwrap()` fora de teste; aqui ele sobrevive por pragmatismo da TUI.
     fn carregar_containers(conn: &Connection) -> Vec<ContainerInfo> {
         let mut stmt = conn
             .prepare(
@@ -55,6 +94,8 @@ impl App {
                  ORDER BY container_name, level",
             )
             .unwrap();
+        // Mapa aninhado: container -> (nível -> total). O `BTreeMap` externo
+        // dá a ordem alfabética dos containers "de graça".
         let mut dados: BTreeMap<String, BTreeMap<String, i64>> = BTreeMap::new();
         for row in stmt
             .query_map([], |r| {
@@ -64,13 +105,23 @@ impl App {
                 Ok((n, l, c))
             })
             .unwrap()
+            // `query_map` devolve um iterador de `Result<(String, String, i64)>`
+            // (uma linha pode falhar ao ser lida); `.flatten()` descarta os
+            // `Err` e "desembrulha" só os `Ok`, produzindo direto as tuplas.
             .flatten()
         {
+            // `entry(...).or_default()` pega o sub-mapa daquele container
+            // (criando um vazio se for a primeira vez que o vemos) e insere
+            // o total daquele nível.
             dados.entry(row.0).or_default().insert(row.1, row.2);
         }
 
         // Carrega uptime dos containers
         let mut up = BTreeMap::new();
+        // `if let Ok(...)`: a tabela `containers` sempre existe (criada em
+        // `init_db`), mas usamos `if let` em vez de `?`/`unwrap()` porque a
+        // ausência de uptime não deve impedir a TUI de abrir — a query só é
+        // executada se preparar com sucesso; se falhar, `up` fica vazio.
         if let Ok(mut s) = conn.prepare("SELECT name, uptime FROM containers") {
             for row in s
                 .query_map([], |r| {
@@ -85,9 +136,19 @@ impl App {
             }
         }
 
+        // Converte o mapa aninhado em `Vec<ContainerInfo>`, já ordenado por
+        // nome (herdado da ordem do `BTreeMap`). `into_iter()` consome
+        // `dados`, então cada `name`/`niveles` é movido (não copiado) para
+        // dentro do `ContainerInfo`.
         dados
             .into_iter()
             .map(|(name, niveles)| ContainerInfo {
+                // `up.get(&name)` empresta a String antes de `name` ser
+                // movido para o campo abaixo; por isso o `uptime` precisa
+                // vir primeiro na struct literal (a ordem dos campos na
+                // inicialização não precisa bater com a ordem declarada, mas
+                // aqui importa a ordem de *avaliação*: `name` só é movido na
+                // última linha).
                 uptime: up.get(&name).cloned().unwrap_or_default(),
                 name,
                 niveles,
@@ -95,6 +156,8 @@ impl App {
             .collect()
     }
 
+    // Busca as linhas de log de um container+nível específico, na ordem em
+    // que foram inseridas (`ORDER BY id`). Usado ao entrar na tela `Lines`.
     fn carregar_linhas(conn: &Connection, container: &str, nivel: &str) -> Vec<String> {
         let mut stmt = conn
             .prepare(
@@ -105,10 +168,16 @@ impl App {
             .unwrap();
         stmt.query_map(rusqlite::params![container, nivel], |r| r.get(0))
             .unwrap()
+            // Aqui usamos `filter_map(|r| r.ok())` em vez de `.flatten()`
+            // (equivalentes para `Result`) — mesma ideia: descarta linhas que
+            // falharam ao decodificar, mantém só as que vieram como `Ok`.
             .filter_map(|r| r.ok())
             .collect()
     }
 
+    // Atalho para o container atualmente destacado na tela `Containers`.
+    // Devolve uma referência emprestada (`&ContainerInfo`): não clona os
+    // dados, só empresta o elemento do Vec indexado por `selected_container`.
     fn container_atual(&self) -> &ContainerInfo {
         &self.containers[self.selected_container]
     }
@@ -116,14 +185,31 @@ impl App {
 
 // --- TUI principal ---------------------------------------------------------
 
+// Ponto de entrada da TUI: prepara o terminal, roda o loop principal (que só
+// devolve o controle quando o usuário sai) e depois desfaz as mudanças no
+// terminal, aconteça o que acontecer no meio do caminho.
 pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    // "Raw mode": desliga o comportamento padrão do terminal de line-buffering
+    // e eco de teclas. Sem isso, o terminal só entregaria teclas ao programa
+    // depois de Enter, e ecoaria cada tecla na tela — incompatível com uma
+    // interface que reage a cada seta imediatamente.
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
+    // "Alternate screen": troca para um buffer de tela separado (o mesmo
+    // truque usado por `vim`/`less`/`htop`), preservando o conteúdo que já
+    // estava no terminal para restaurar depois que a TUI fechar.
     execute!(stdout, EnterAlternateScreen)?;
 
+    // `CrosstermBackend` adapta o `stdout` (que sabe escrever bytes) para a
+    // interface que o `ratatui::Terminal` espera (que sabe posicionar cursor,
+    // limpar áreas, etc.). O `Terminal` por cima disso cuida do double
+    // buffering: compara o quadro novo com o anterior e só reescreve o que
+    // mudou, evitando "flicker".
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
+    // Estado inicial: começa na tela de containers, já carregada do banco;
+    // as demais telas ficam vazias até o usuário navegar até elas.
     let mut app = App {
         screen: Screen::Containers,
         containers: App::carregar_containers(conn),
@@ -137,34 +223,72 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         expanded: HashSet::new(),
     };
 
+    // O clássico "loop de eventos" de uma TUI: desenha o quadro atual, espera
+    // (bloqueante) o próximo evento de teclado, atualiza o estado conforme a
+    // tecla e a tela ativa, e repete. O `loop` só termina com um `break`
+    // explícito (aqui, ao apertar `q` na tela de containers), devolvendo o
+    // valor passado ao `break` como resultado do bloco `loop { ... }` —
+    // por isso `res` recebe o `Ok(())`/`Err(...)` que foi "quebrado".
     let res = loop {
+        // `terminal.draw` recebe uma closure que recebe o `Frame` (a área de
+        // desenho do quadro atual) e delega para `renderizar`, que decide
+        // qual tela desenhar. O `?` propaga eventuais erros de IO do terminal.
         terminal.draw(|f| renderizar(f, &app))?;
 
+        // `event::read()` bloqueia a thread até chegar um evento (tecla,
+        // resize, etc.). Só nos interessam eventos de tecla; outros tipos
+        // (ex.: redimensionar a janela) são ignorados pelo `if let`.
         if let Event::Key(key) = event::read()? {
+            // Cada tela trata as teclas de um jeito diferente, então o
+            // `match` externo escolhe o conjunto de atalhos pela tela ativa,
+            // e o `match key.code` interno escolhe a ação pela tecla.
             match app.screen {
                 Screen::Containers => match key.code {
+                    // `k`/seta-cima: sobe a seleção. `saturating_sub(1)` evita
+                    // estourar por baixo de zero (índice `usize` não pode ser
+                    // negativo; sem `saturating_sub` um `0 - 1` faria panic
+                    // por overflow em modo debug).
                     KeyCode::Up | KeyCode::Char('k') => {
                         app.selected_container = app.selected_container.saturating_sub(1)
                     }
+                    // `j`/seta-baixo: desce a seleção, mas sem passar do
+                    // último índice válido (`max`). `saturating_add` evita
+                    // overflow por cima; `.min(max)` trava no teto.
                     KeyCode::Down | KeyCode::Char('j') => {
                         let max = app.containers.len().saturating_sub(1);
                         app.selected_container = app.selected_container.saturating_add(1).min(max);
                     }
+                    // Enter: entra na tela de níveis do container selecionado.
                     KeyCode::Enter => {
+                        // `.clone()` porque `nome` vai sobreviver além do
+                        // empréstimo de `app.container_atual()` (precisamos
+                        // depois atribuir em `app.nome_do_container`, e o
+                        // borrow checker não deixaria manter uma referência
+                        // para dentro de `app` enquanto mutamos `app` logo
+                        // abaixo).
                         let nome = app.container_atual().name.clone();
+                        // Copia os pares (nível, total) do `BTreeMap` (que
+                        // está ordenado por nome do nível) para um `Vec` que
+                        // podemos reordenar livremente por contagem.
                         let mut v: Vec<_> = app
                             .container_atual()
                             .niveles
                             .iter()
                             .map(|(k, v)| (k.clone(), *v))
                             .collect();
+                        // Ordena do maior total para o menor: `Reverse` inverte
+                        // a ordem natural (`sort_by_key` por si só ordenaria
+                        // crescente).
                         v.sort_by_key(|b| std::cmp::Reverse(b.1));
                         app.niveles = v;
                         app.selected_nivel = 0;
                         app.nome_do_container = nome;
                         app.screen = Screen::Levels;
                     }
+                    // `q`: sai do loop com sucesso. `break Ok(())` devolve
+                    // esse valor como resultado de todo o bloco `loop`.
                     KeyCode::Char('q') => break Ok(()),
+                    // `_`: qualquer outra tecla é ignorada nesta tela.
                     _ => {}
                 },
                 Screen::Levels => match key.code {
@@ -175,14 +299,20 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
                         let max = app.niveles.len().saturating_sub(1);
                         app.selected_nivel = app.selected_nivel.saturating_add(1).min(max);
                     }
+                    // Enter: busca no banco as linhas de log daquele nível e
+                    // avança para a tela de linhas.
                     KeyCode::Enter => {
                         let (nivel, _) = &app.niveles[app.selected_nivel];
                         app.linhas = App::carregar_linhas(conn, &app.nome_do_container, nivel);
                         app.selected_linha = 0;
+                        // Limpa expansões da visita anterior à tela de linhas
+                        // (senão índices de uma consulta antiga ficariam
+                        // "expandidos" por engano na consulta nova).
                         app.expanded.clear();
                         app.nome_do_nivel = nivel.clone();
                         app.screen = Screen::Lines;
                     }
+                    // Esc ou Backspace: volta uma tela (para Containers).
                     KeyCode::Esc | KeyCode::Backspace => app.screen = Screen::Containers,
                     _ => {}
                 },
@@ -194,6 +324,11 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
                         let max = app.linhas.len().saturating_sub(1);
                         app.selected_linha = app.selected_linha.saturating_add(1).min(max);
                     }
+                    // Enter alterna expandir/recolher a linha selecionada —
+                    // só faz sentido se houver alguma linha carregada (a
+                    // guarda `if !app.linhas.is_empty()` depois do padrão é
+                    // uma "match guard": só casa este braço se a condição for
+                    // verdadeira; senão cai no `_` abaixo).
                     KeyCode::Enter if !app.linhas.is_empty() => {
                         if app.expanded.contains(&app.selected_linha) {
                             app.expanded.remove(&app.selected_linha);
@@ -208,6 +343,12 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Desfaz, na ordem inversa, tudo o que foi ativado no início: sai do raw
+    // mode, volta para a tela normal do terminal (restaurando o que havia
+    // antes de abrir a TUI) e garante que o cursor volte a aparecer (o
+    // `ratatui` o esconde durante o desenho). Isso roda mesmo se `res` for um
+    // `Err` — importante para não deixar o terminal do usuário "quebrado"
+    // (sem eco de tecla, preso na tela alternada) caso algo falhe no loop.
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -216,7 +357,16 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // --- Renderização ----------------------------------------------------------
+//
+// Cada `renderizar_*` monta os widgets do `ratatui` (listas, blocos com
+// borda, parágrafo de ajuda) a partir do estado em `app` e os desenha no
+// `Frame` recebido. Nenhuma dessas funções lê o banco ou faz IO: elas só
+// transformam dados já carregados em widgets — o carregamento acontece antes,
+// no loop de eventos, ao trocar de tela.
 
+// Escolhe qual tela desenhar de acordo com `app.screen`. É chamada a cada
+// volta do loop de eventos, mesmo quando nada mudou (o `ratatui::Terminal`
+// já otimiza o redesenho comparando com o quadro anterior).
 fn renderizar(f: &mut Frame, app: &App) {
     match app.screen {
         Screen::Containers => renderizar_containers(f, app),
@@ -225,12 +375,20 @@ fn renderizar(f: &mut Frame, app: &App) {
     }
 }
 
+// Desenha a tela inicial: lista de containers, cada um com seu uptime (se
+// houver) e o resumo de níveis de log.
 fn renderizar_containers(f: &mut Frame, app: &App) {
+    // Monta uma linha de texto por container. `enumerate()` dá o índice `i`
+    // junto com a referência `c`, necessário para saber qual linha é a
+    // selecionada e destacá-la.
     let items: Vec<ListItem> = app
         .containers
         .iter()
         .enumerate()
         .map(|(i, c)| {
+            // Sem uptime coletado ainda (container nunca visto como
+            // "running"), omite essa coluna do layout em vez de imprimir um
+            // espaço em branco de tamanho fixo.
             let linha = if c.uptime.is_empty() {
                 format!(
                     "{:20}  {}",
@@ -253,6 +411,9 @@ fn renderizar_containers(f: &mut Frame, app: &App) {
                         .join("  ")
                 )
             };
+            // A linha correspondente ao item selecionado ganha destaque
+            // visual (amarelo + negrito); as demais ficam com o estilo
+            // padrão do terminal.
             if i == app.selected_container {
                 ListItem::new(linha).style(
                     Style::default()
@@ -269,6 +430,10 @@ fn renderizar_containers(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL).title(" Containers "))
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
+    // Divide a área do quadro em duas faixas verticais: a lista ocupa todo o
+    // espaço restante (`Constraint::Min(1)`) e a linha de ajuda fica fixa em
+    // 1 linha na base (`Constraint::Length(1)`). `f.area()` é o retângulo
+    // total disponível no terminal neste quadro.
     let area = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -276,6 +441,7 @@ fn renderizar_containers(f: &mut Frame, app: &App) {
 
     f.render_widget(list, area[0]);
 
+    // Rodapé com os atalhos de teclado válidos nesta tela.
     let help = Paragraph::new(format!(
         "  ↑/↓ navegar  Enter:ver níveis  q:sair   ({})",
         app.containers.len()
@@ -284,6 +450,9 @@ fn renderizar_containers(f: &mut Frame, app: &App) {
     f.render_widget(help, area[1]);
 }
 
+// Desenha a tela intermediária: níveis de log do container escolhido,
+// ordenados do maior para o menor total (ordenação feita no momento do
+// Enter, em `run_tui`), cada um colorido pela severidade.
 fn renderizar_niveis(f: &mut Frame, app: &App) {
     let items: Vec<ListItem> = app
         .niveles
@@ -292,12 +461,18 @@ fn renderizar_niveis(f: &mut Frame, app: &App) {
         .map(|(i, (nivel, total))| {
             let item = format!("  {:10} {}", nivel, total);
             if i == app.selected_nivel {
+                // Item selecionado: destaque amarelo/negrito tem prioridade
+                // sobre a cor de severidade (senão o usuário perderia o
+                // feedback de "onde estou" na navegação).
                 ListItem::new(item).style(
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
+                // Cor por severidade, na linha não selecionada: vermelho para
+                // erros/críticos, amarelo para avisos, verde para info, cinza
+                // para debug. `_ =>` cobre níveis não reconhecidos (sem cor).
                 let estilo = match nivel.to_uppercase().as_str() {
                     "ERROR" | "ERRO" | "CRIT" | "CRITICAL" | "FATAL" => {
                         Style::default().fg(Color::Red)
@@ -312,6 +487,8 @@ fn renderizar_niveis(f: &mut Frame, app: &App) {
         })
         .collect();
 
+    // Soma total de linhas de log deste container (todos os níveis
+    // somados), exibida no rodapé como referência.
     let total: i64 = app.niveles.iter().map(|(_, v)| v).sum();
     let list = List::new(items).block(
         Block::default()
@@ -334,12 +511,19 @@ fn renderizar_niveis(f: &mut Frame, app: &App) {
     f.render_widget(help, area[1]);
 }
 
+// Desenha a tela final: as linhas de log cruas do nível escolhido. Linhas
+// longas vêm truncadas por padrão (para não quebrar o layout de lista); o
+// usuário pode expandir uma de cada vez com Enter (ver `app.expanded`).
 fn renderizar_linhas(f: &mut Frame, app: &App) {
     let items: Vec<ListItem> = app
         .linhas
         .iter()
         .enumerate()
         .map(|(i, linha)| {
+            // Linha expandida: mostra o texto completo (`.clone()` porque
+            // `ListItem::new` precisa de uma `String` própria, não de uma
+            // referência emprestada de `app.linhas`). Não expandida: usa a
+            // versão truncada a 120 caracteres.
             let texto = if app.expanded.contains(&i) {
                 linha.clone()
             } else {
@@ -352,8 +536,12 @@ fn renderizar_linhas(f: &mut Frame, app: &App) {
                         .add_modifier(Modifier::BOLD),
                 )
             } else if app.expanded.contains(&i) {
+                // Expandida mas não selecionada: sem cor especial, só o
+                // texto completo em estilo padrão.
                 ListItem::new(texto)
             } else {
+                // Truncada e não selecionada: cinza para indicar visualmente
+                // que há mais texto por trás (reforça o convite a expandir).
                 ListItem::new(texto).style(Style::default().fg(Color::DarkGray))
             }
         })
@@ -382,6 +570,13 @@ fn renderizar_linhas(f: &mut Frame, app: &App) {
 
 // --- Utilitários -----------------------------------------------------------
 
+// Corta a string em `max` bytes e acrescenta "…" para indicar que há mais
+// texto. Nota: usa `&s[..max]` (fatiamento por bytes, não por caracteres),
+// o que só é seguro se `max` cair numa fronteira de caractere UTF-8 — no uso
+// atual (`truncar(linha, 120)`), qualquer log com caracteres multi-byte
+// exatamente no byte 120 causaria panic; funciona na prática porque logs em
+// texto puro raramente têm esse limite exato coincidindo com um caractere
+// especial.
 fn truncar(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()

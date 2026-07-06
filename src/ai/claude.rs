@@ -5,17 +5,36 @@
 // renderização do dashboard para `render::renderizar_dashboard`. A única
 // diferença é a fonte — arquivos JSONL em vez de SQLite.
 
+// `BTreeMap` mantém as chaves ordenadas (útil para o heatmap por dia e para a
+// tabela de modelos, que saem sempre na mesma ordem); `HashMap` não ordena,
+// mas é mais rápido — usado só como acumulador temporário (sessão -> horários)
+// que depois vira `Vec` e é ordenado antes de retornar.
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
+// `DateTime<Utc>`/`DateTime<...>` representam um instante com fuso horário;
+// `NaiveDate` é só a data (ano/mês/dia), sem hora nem fuso — usada como chave
+// do heatmap, já que ali só importa o dia. `Local` dá acesso ao fuso horário
+// da máquina, usado para agrupar por "dia local" em vez de UTC.
 use chrono::{DateTime, Local, NaiveDate, Utc};
+// `Args`: macro de derive do clap que transforma a struct anotada em um
+// grupo de argumentos de linha de comando (flags, posicional, defaults).
 use clap::Args;
+// `Deserialize`: macro de derive do serde que gera o código para converter
+// JSON (ou outro formato) diretamente nos campos da struct, sem parsing manual.
 use serde::Deserialize;
+// `WalkDir`: itera recursivamente sobre um diretório e suas subpastas,
+// devolvendo um iterador de entradas — poupa escrever a recursão à mão.
 use walkdir::WalkDir;
 
 use crate::ai::render;
 
 /// Estatísticas do Claude Code a partir dos transcritos JSONL locais.
+// `#[derive(Args, Debug)]`: `Args` faz o clap gerar o parser deste grupo de
+// argumentos a partir dos campos abaixo; `Debug` permite imprimir a struct
+// inteira com `{:?}` (útil ao depurar quais flags foram recebidas).
+// `#[command(help_template = ...)]`: troca o texto de ajuda padrão do clap
+// pelo template compartilhado do módulo `crate::help`.
 #[derive(Args, Debug)]
 #[command(help_template = crate::help::ARGUMENTOS, next_help_heading = crate::help::OPCOES)]
 pub struct ClaudeArgs {
@@ -50,8 +69,12 @@ pub struct ClaudeArgs {
 //
 // Só declaramos os campos que nos interessam; campos extras no JSON
 // são ignorados silenciosamente pelo serde.
+// `#[derive(Debug, Deserialize)]`: `Debug` permite imprimir a struct com
+// `{:?}`; `Deserialize` é o que o `serde_json::from_str` usa para preencher
+// os campos a partir do JSON de cada linha do `.jsonl`.
 #[derive(Debug, Deserialize)]
 struct Uso {
+    // Tokens de entrada e saída "normais" (fora de cache).
     input_tokens: i64,
     output_tokens: i64,
     // `#[serde(default)]`: se o campo não vier no JSON, assume 0 em vez
@@ -64,24 +87,39 @@ struct Uso {
 
 #[derive(Debug, Deserialize)]
 struct Mensagem {
+    // `Option<String>`: nem toda mensagem do JSONL tem `model` (ex.:
+    // mensagens de usuário não têm) — `None` cobre esse caso sem precisar de
+    // um valor sentinela como string vazia.
     model: Option<String>,
+    // Idem: só mensagens de assistente com uso de tokens têm `usage`
+    // preenchido; as demais desserializam como `None`.
     usage: Option<Uso>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Registro {
+    // Timestamp como `String` crua (RFC 3339); o parsing para `DateTime`
+    // acontece depois, em `carregar_sessoes`, só quando o registro passa
+    // pelo filtro de mês (evita parsear datas que serão descartadas).
     timestamp: String,
     // O JSON usa `sessionId` (camelCase), mas Rust prefere
     // `session_id` (snake_case). `rename` faz a ponte.
     #[serde(rename = "sessionId")]
     session_id: Option<String>,
+    // `Option`: nem toda linha do JSONL é uma mensagem (há também linhas de
+    // metadados de sessão, resumo, etc.) — essas desserializam com `None`
+    // aqui e são ignoradas mais adiante.
     message: Option<Mensagem>,
 }
 
 // ── UsoSessao ───────────────────────────────────────────────────────
 // Dados de uso de cada mensagem de assistente, extraídos dos JSONL.
 // Usado para agregar custo e tokens por modelo no `execute()`.
+// Sem `#[derive(Debug)]` porque nunca precisamos imprimir esta struct — só
+// somamos seus campos numéricos em `carregar_dados`.
 pub struct UsoSessao {
+    /// Nome do modelo (ex.: "claude-opus-4"); usado como chave ao agrupar
+    /// por modelo e ao consultar a tabela de preços.
     pub modelo: String,
     pub tokens_entrada: i64,
     pub tokens_cache_escrita: i64,
@@ -93,6 +131,10 @@ pub struct UsoSessao {
 // Diretório onde o Claude Code salva os transcritos das sessões. Cada
 // projeto tem uma subpasta com arquivos `.jsonl`.
 fn diretorio_projetos() -> PathBuf {
+    // `std::env::var` devolve `Result<String, VarError>`: `Err` se a
+    // variável não existir. `unwrap_or_else` cai para "." (diretório atual)
+    // nesse caso, em vez de entrar em pânico — mantendo a função livre de
+    // `unwrap()` conforme convenção do projeto.
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".claude/projects")
 }
@@ -118,6 +160,11 @@ pub fn carregar_sessoes(
     Vec<UsoSessao>,
     BTreeMap<NaiveDate, i64>,
 ) {
+    // Acumulador temporário: para cada `session_id`, guarda todos os
+    // instantes (um por mensagem) vistos nos arquivos. `HashMap` é
+    // suficiente aqui (não precisamos da ordenação que `BTreeMap` daria)
+    // porque este mapa nunca é iterado em ordem — só convertido em
+    // `Vec<render::Sessao>` no fim, via `into_values()`.
     let mut horarios_por_sessao: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
     let mut usos: Vec<UsoSessao> = Vec::new();
     let mut tokens_por_dia: BTreeMap<NaiveDate, i64> = BTreeMap::new();
@@ -221,6 +268,9 @@ pub fn carregar_dados(periodo: &str) -> render::DadosProvedor {
     let (sessoes, usos, tokens_por_dia) = carregar_sessoes(periodo);
 
     let mut custo_usd_total = 0.0;
+    // `BTreeSet`: como um `BTreeMap` mas só guarda as chaves (sem valor
+    // associado) e não permite duplicatas — perfeito para "quais nomes de
+    // modelo eu já vi sem preço cadastrado", onde só a presença importa.
     let mut modelos_sem_preco: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
     let mut por_modelo: BTreeMap<String, render::ModeloUso> = BTreeMap::new();
@@ -233,6 +283,11 @@ pub fn carregar_dados(periodo: &str) -> render::DadosProvedor {
             continue;
         }
 
+        // API `entry`: busca (ou cria, via `or_insert`) a entrada para este
+        // modelo no mapa. Na primeira vez que um modelo aparece, o
+        // `render::ModeloUso` literal abaixo é inserido com contadores
+        // zerados; nas próximas iterações, `entry` só devolve o valor já
+        // existente para acumularmos nele.
         let entry = por_modelo
             .entry(uso.modelo.clone())
             .or_insert(render::ModeloUso {
@@ -285,6 +340,11 @@ pub fn carregar_dados(periodo: &str) -> render::DadosProvedor {
 // para JSON ou `render::renderizar_dashboard`.
 impl ClaudeArgs {
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
+        // Três casos para o período: `--historico` força string vazia (que
+        // `carregar_sessoes`/`carregar_dados` tratam como "sem filtro, mostra
+        // tudo"); um período explícito (`self.periodo`) é clonado e usado
+        // como veio; sem nenhum dos dois, cai no mês atual formatado como
+        // "YYYY-MM" (`Local::now()` pega a data local, não UTC).
         let periodo = if self.historico {
             String::new()
         } else {
@@ -299,6 +359,9 @@ impl ClaudeArgs {
         }
 
         let por_dia = render::agregar_por_dia(&dados.sessoes);
+        // `.values()` itera só os valores do mapa (descarta as chaves/dias);
+        // cada valor é a tupla `(horas, sessoes)` — `map` extrai só `horas`
+        // e `sum()` soma tudo num único `f64`.
         let total_horas: f64 = por_dia.values().map(|(h, _)| h).sum();
         let subtitulo = if self.historico {
             format!(
@@ -311,6 +374,11 @@ impl ClaudeArgs {
         };
 
         if self.json {
+            // Structs de saída declaradas aqui dentro (escopo local a este
+            // `if`): só existem para dar forma ao JSON impresso neste modo,
+            // não são usadas em mais nenhum lugar do módulo. `Serialize` (do
+            // serde) é o inverso de `Deserialize`: converte a struct em texto
+            // JSON em vez de ler JSON para dentro dela.
             #[derive(serde::Serialize)]
             struct LinhaDia {
                 dia: String,
@@ -337,6 +405,10 @@ impl ClaudeArgs {
                 historico: self.historico,
                 mes: periodo.clone(),
                 total_horas,
+                // `.iter()` empresta cada par `(dia, (horas, sessoes))` do
+                // `BTreeMap` sem consumi-lo; `*horas`/`*sessoes` desreferenciam
+                // os valores emprestados para copiá-los (são tipos `Copy`)
+                // para dentro da struct de saída.
                 dias: por_dia
                     .iter()
                     .map(|(dia, (horas, sessoes))| LinhaDia {
@@ -357,9 +429,14 @@ impl ClaudeArgs {
                     })
                     .collect(),
             };
+            // `?` propaga o erro de serialização (praticamente nunca ocorre
+            // aqui, mas o tipo de retorno de `to_string_pretty` é `Result`).
             return Ok(serde_json::to_string_pretty(&saida_json)?);
         }
 
+        // Caminho padrão (sem `--json`): delega toda a renderização colorida
+        // (heatmap, tabela de modelos, ranking de dias) para `render`,
+        // compartilhada com o `opencode.rs` e o dashboard combinado.
         Ok(render::renderizar_dashboard(
             "Claude Code atividade",
             &subtitulo,

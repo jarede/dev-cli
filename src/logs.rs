@@ -12,12 +12,23 @@ use std::collections::BTreeMap;
 use std::io::BufRead;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::Args;
 use clap::Subcommand;
 // Trait de extensão do `owo-colors`: ao importá-la, todo tipo que implementa
 // `Display` ganha métodos como `.red()`, `.bold()`, `.dimmed()`.
 use owo_colors::OwoColorize;
+use rusqlite::Connection;
+
+/// Metadados de um container obtidos via `docker ps`.
+struct ContainerRemoto {
+    nome: String,
+    /// Status textual: "Up 2 days", "Exited (0) 3 days ago", etc.
+    status: String,
+    /// Timestamp ISO de criação: "2026-07-04 12:00:00 +0000 UTC"
+    criado_em: String,
+}
 
 // Níveis que o supervisord escreve na 3ª coluna de cada linha própria.
 // `[&str; 6]` é um array de tamanho fixo conhecido em tempo de compilação.
@@ -42,6 +53,7 @@ impl LogsArgs {
         match &self.comando {
             LogsCommands::Stats(args) => args.execute(),
             LogsCommands::Containers(args) => args.execute(),
+            LogsCommands::Remote(args) => args.execute(),
         }
     }
 }
@@ -53,6 +65,8 @@ enum LogsCommands {
     Stats(StatsArgs),
     /// Estatísticas de logs dos containers detectados via `container list`.
     Containers(ContainersArgs),
+    /// Estatísticas de logs de containers via SSH (docker logs remoto).
+    Remote(RemoteArgs),
 }
 
 /// Estatísticas de logs de um container específico, ou de todos.
@@ -191,10 +205,420 @@ impl ContainersArgs {
             // NÚCLEO PURO: mesmo princípio do `contar` acima, mas adaptado ao
             // formato colorido (códigos ANSI) que `container logs` emite.
             let niveis = contar_niveis_container(&conteudo);
-            saida.push_str(&renderizar_container(&nome, &niveis));
+            saida.push_str(&renderizar_container(&nome, None, &niveis));
         }
+
         Ok(saida.trim_end().to_string())
     }
+}
+
+/// Estatísticas de logs de containers via SSH (executa `docker logs` no host remoto).
+#[derive(Args, Debug)]
+#[command(help_template = crate::help::ARGUMENTOS, next_help_heading = crate::help::OPCOES)]
+pub struct RemoteArgs {
+    /// Container específico; se omitido, varre todos os containers rodando.
+    #[arg(help_heading = crate::help::ARGUMENTOS_HEADING)]
+    container: Option<String>,
+    /// Host SSH (user@host).
+    #[arg(long, default_value = "jarede.silva@qa.bistek.com.br")]
+    host: String,
+    /// Quantidade de linhas do final de cada container (últimas N linhas).
+    /// Ignorado quando `--db` está ativo usa incremental `--since`.
+    #[arg(long, default_value_t = 1000)]
+    tail: usize,
+    /// Caminho do banco SQLite para armazenamento incremental.
+    #[arg(long)]
+    db: Option<PathBuf>,
+    /// Modo contínuo: coleta a cada 5 minutos (requer --db).
+    #[arg(short, long)]
+    watch: bool,
+    /// Abre TUI interativo para navegar nas estatísticas (requer --db).
+    #[arg(long)]
+    tui: bool,
+}
+
+impl RemoteArgs {
+    pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let Some(db_path) = &self.db else {
+            // Modo original: one-shot sem persistência
+            let containers = if let Some(container) = &self.container {
+                vec![ContainerRemoto {
+                    nome: container.clone(),
+                    status: String::new(),
+                    criado_em: String::new(),
+                }]
+            } else {
+                listar_containers_remoto(&self.host)?
+            };
+            let mut saida = String::new();
+            for c in containers {
+                let conteudo = obter_logs_remoto(&self.host, &c.nome, self.tail)?;
+                let niveis = contar_niveis_docker(&conteudo);
+                let status = if c.status.is_empty() { None } else { Some(c.status.as_str()) };
+                saida.push_str(&renderizar_container(&c.nome, status, &niveis));
+            }
+            return Ok(saida.trim_end().to_string());
+        };
+
+        // Modo com banco: coleta incremental + persistência
+        let conn = Connection::open(db_path)?;
+        init_db(&conn)?;
+
+        // Se o DB está vazio ou o usuário quer TUI, fazemos uma coleta agora
+        let db_vazio = conn
+            .query_row("SELECT COUNT(*) FROM containers", [], |r| r.get::<_, i64>(0))
+            .unwrap_or(0)
+            == 0;
+
+        if db_vazio || !self.tui {
+            let agora = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            let mut saida = String::new();
+
+            // 1. Descobre containers rodando e detecta paradas/restart
+            let rodando = listar_containers_remoto(&self.host)?;
+            let nomes_rodando: Vec<String> = rodando.iter().map(|c| c.nome.clone()).collect();
+            let alertas = verificar_status_containers(&conn, &nomes_rodando, agora)?;
+            for alerta in &alertas {
+                saida.push_str(&format!("⚠️  {}\n", alerta.bold()));
+            }
+
+            // 2. Coleta incremental dos que estão rodando
+            for c in &rodando {
+                let ultima_coleta: i64 = conn
+                    .query_row(
+                        "SELECT COALESCE(last_collected_at, 0) FROM containers WHERE name = ?1",
+                        rusqlite::params![c.nome],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+
+                let conteudo = if ultima_coleta == 0 {
+                    obter_logs_remoto(&self.host, &c.nome, self.tail)?
+                } else {
+                    obter_logs_remoto_desde(&self.host, &c.nome, ultima_coleta)?
+                };
+
+                // Extrai linhas categorizadas por nível e persiste no banco
+                let grupos = categorizar_por_nivel(&conteudo);
+                let niveis: BTreeMap<String, usize> =
+                    grupos.iter().map(|(k, v)| (k.clone(), v.len())).collect();
+
+                armazenar_contagens(&conn, &c.nome, &niveis, agora)?;
+                armazenar_linhas(&conn, &c.nome, &grupos, agora)?;
+                conn.execute(
+                    "INSERT OR REPLACE INTO containers (name, status, last_collected_at, uptime, criado_em) VALUES (?1, 'running', ?2, ?3, ?4)",
+                    rusqlite::params![c.nome, agora, c.status, c.criado_em],
+                )?;
+            }
+
+            // 3. Exibe acumulado do banco (só se não for TUI)
+            if !self.tui {
+                saida.push_str(&exibir_estatisticas(&conn)?);
+
+                if !self.watch {
+                    return Ok(saida.trim_end().to_string());
+                }
+
+                // Modo --watch: limpa, exibe painel e espera 5 min
+                print!("\x1b[2J\x1b[H{}", saida.trim_end());
+                std::io::stdout().flush()?;
+                std::thread::sleep(Duration::from_secs(300));
+            }
+        }
+
+        // Modo TUI
+        crate::tui::run_tui(&conn)?;
+        Ok(String::new())
+    }
+}
+
+// Cria as tabelas do banco se não existirem.
+fn init_db(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS containers (
+            name TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'unknown',
+            last_collected_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS log_counts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_name TEXT NOT NULL,
+            level TEXT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0,
+            collected_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_name TEXT NOT NULL,
+            alert_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS log_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_name TEXT NOT NULL,
+            level TEXT NOT NULL,
+            line TEXT NOT NULL,
+            collected_at INTEGER NOT NULL
+        );",
+    )?;
+
+    // Migração: adiciona colunas que podem não existir em DBs criados antes
+    for sql in &[
+        "ALTER TABLE containers ADD COLUMN uptime TEXT DEFAULT ''",
+        "ALTER TABLE containers ADD COLUMN criado_em TEXT DEFAULT ''",
+    ] {
+        let _ = conn.execute(sql, []);
+    }
+
+    Ok(())
+}
+
+// Insere as contagens desta coleta no banco.
+fn armazenar_contagens(
+    conn: &Connection,
+    nome: &str,
+    niveis: &BTreeMap<String, usize>,
+    agora: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut stmt =
+        conn.prepare("INSERT INTO log_counts (container_name, level, count, collected_at) VALUES (?1, ?2, ?3, ?4)")?;
+    for (nivel, &quantidade) in niveis {
+        if quantidade > 0 {
+            stmt.execute(rusqlite::params![nome, nivel, quantidade as i64, agora])?;
+        }
+    }
+    Ok(())
+}
+
+// NÚCLEO PURO: categoriza cada linha de log pelo nível detectado.
+// Devolve um mapa de nível → lista de linhas (já sem códigos ANSI).
+fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
+    let mut grupos: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for linha in conteudo.lines() {
+        let limpa = remover_ansi(linha);
+        if let Some(nivel) = limpa
+            .split_whitespace()
+            .find(|token| NIVEIS_DOCKER.contains(&token.to_uppercase().as_str()))
+        {
+            grupos
+                .entry(nivel.to_uppercase())
+                .or_default()
+                .push(limpa);
+        }
+    }
+    grupos
+}
+
+// CASCA DE IO: armazena as linhas de log no banco, agrupadas por nível.
+// Remove linhas antigas do mesmo container para evitar acúmulo infinito.
+fn armazenar_linhas(
+    conn: &Connection,
+    nome: &str,
+    grupos: &BTreeMap<String, Vec<String>>,
+    agora: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Remove linhas antigas deste container (mantém só as últimas coletas)
+    conn.execute(
+        "DELETE FROM log_lines WHERE container_name = ?1",
+        rusqlite::params![nome],
+    )?;
+
+    let mut stmt = conn.prepare(
+        "INSERT INTO log_lines (container_name, level, line, collected_at) VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (nivel, linhas) in grupos {
+        for linha in linhas {
+            stmt.execute(rusqlite::params![nome, nivel, linha, agora])?;
+        }
+    }
+    Ok(())
+}
+
+// Compara containers conhecidos no DB com os que estão rodando agora.
+// Gera alertas para containers que pararam ou reiniciaram.
+fn verificar_status_containers(
+    conn: &Connection,
+    rodando: &[String],
+    agora: i64,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut alertas = Vec::new();
+
+    // Containers que estavam running mas não estão mais → pararam
+    let mut stmt = conn.prepare(
+        "SELECT name FROM containers WHERE status = 'running'",
+    )?;
+    let conhecidos: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    for nome in &conhecidos {
+        if !rodando.contains(nome) {
+            conn.execute(
+                "UPDATE containers SET status = 'stopped' WHERE name = ?1",
+                rusqlite::params![nome],
+            )?;
+            conn.execute(
+                "INSERT INTO alerts (container_name, alert_type, message, created_at) VALUES (?1, 'stopped', ?2, ?3)",
+                rusqlite::params![nome, format!("Container '{nome}' parou"), agora],
+            )?;
+            alertas.push(format!("⚠️  {} PAROU", nome));
+        }
+    }
+
+    // Containers rodando agora mas estavam stopped → reiniciaram
+    for nome in rodando {
+        let status_anterior: Option<String> = conn
+            .query_row(
+                "SELECT status FROM containers WHERE name = ?1",
+                rusqlite::params![nome],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(status) = status_anterior.as_ref() && status == "stopped" {
+            conn.execute(
+                "INSERT INTO alerts (container_name, alert_type, message, created_at) VALUES (?1, 'restarted', ?2, ?3)",
+                rusqlite::params![nome, format!("Container '{nome}' reiniciou"), agora],
+            )?;
+            alertas.push(format!("🔄 {} REINICIOU", nome));
+        }
+    }
+
+    Ok(alertas)
+}
+
+// Lê as contagens acumuladas do banco e formata para exibição.
+fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::Error>> {
+    let mut stmt = conn.prepare(
+        "SELECT container_name, level, SUM(count) as total
+         FROM log_counts
+         GROUP BY container_name, level
+         ORDER BY container_name, level",
+    )?;
+
+    let mut dados: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    let linhas = stmt.query_map([], |row| {
+        let nome: String = row.get(0)?;
+        let nivel: String = row.get(1)?;
+        let total: i64 = row.get(2)?;
+        Ok((nome, nivel, total as usize))
+    })?;
+
+    for linha in linhas {
+        let (nome, nivel, total) = linha?;
+        dados.entry(nome).or_default().insert(nivel, total);
+    }
+
+    // Carrega o status (uptime) de cada container do banco
+    let mut stmt2 = conn.prepare("SELECT name, uptime FROM containers WHERE uptime IS NOT NULL AND uptime != ''")?;
+    let mut status_map: BTreeMap<String, String> = BTreeMap::new();
+    for row in stmt2.query_map([], |r| {
+        let n: String = r.get(0)?;
+        let s: String = r.get(1)?;
+        Ok((n, s))
+    })?
+    .flatten()
+    {
+        status_map.insert(row.0, row.1);
+    }
+
+    let mut saida = String::new();
+    for (nome, niveis) in &dados {
+        let status = status_map.get(nome).map(|s| s.as_str());
+        saida.push_str(&renderizar_container(nome, status, niveis));
+    }
+    Ok(saida)
+}
+
+// CASCA DE IO: busca logs de um container desde um timestamp Unix (segundos).
+fn obter_logs_remoto_desde(
+    host: &str,
+    nome: &str,
+    desde: i64,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let cmd = format!("docker logs --since {desde} {nome}");
+    let saida = std::process::Command::new("ssh")
+        .args([host, &cmd])
+        .output()
+        .map_err(|erro| format!("falha ao obter logs incrementais de '{nome}' via SSH: {erro}"))?;
+
+    if !saida.status.success() {
+        return Err(format!(
+            "'docker logs --since {desde} {nome}' via SSH terminou com erro: {}",
+            String::from_utf8_lossy(&saida.stderr)
+        )
+        .into());
+    }
+
+    Ok(String::from_utf8_lossy(&saida.stdout).to_string())
+}
+
+// CASCA DE IO: pergunta ao host remoto quais containers estão rodando com
+// status e timestamp de criação (uptime).
+fn listar_containers_remoto(host: &str) -> Result<Vec<ContainerRemoto>, Box<dyn std::error::Error>> {
+    let saida = std::process::Command::new("ssh")
+        .args([
+            host,
+            "docker ps --format '{{.Names}}|{{.Status}}|{{.CreatedAt}}'",
+        ])
+        .output()
+        .map_err(|erro| format!("falha ao conectar via SSH em {host}: {erro}"))?;
+
+    if !saida.status.success() {
+        return Err(format!(
+            "SSH para {host} terminou com erro: {}",
+            String::from_utf8_lossy(&saida.stderr)
+        )
+        .into());
+    }
+
+    Ok(String::from_utf8_lossy(&saida.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|linha| !linha.is_empty())
+        .filter_map(|linha| {
+            let mut partes = linha.splitn(3, '|');
+            Some(ContainerRemoto {
+                nome: partes.next()?.to_string(),
+                status: partes.next()?.to_string(),
+                criado_em: partes.next()?.to_string(),
+            })
+        })
+        .collect())
+}
+
+// CASCA DE IO: busca as últimas N linhas do log de um container via SSH.
+// Se `tail` for 0, obtém TODAS as linhas (sem `--tail`).
+fn obter_logs_remoto(
+    host: &str,
+    nome: &str,
+    tail: usize,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let cmd = if tail > 0 {
+        format!("docker logs --tail {tail} {nome}")
+    } else {
+        format!("docker logs {nome}")
+    };
+    let saida = std::process::Command::new("ssh")
+        .args([host, &cmd])
+        .output()
+        .map_err(|erro| format!("falha ao obter logs de '{nome}' via SSH: {erro}"))?;
+
+    if !saida.status.success() {
+        return Err(format!(
+            "'docker logs {nome}' via SSH terminou com erro: {}",
+            String::from_utf8_lossy(&saida.stderr)
+        )
+        .into());
+    }
+
+    Ok(String::from_utf8_lossy(&saida.stdout).to_string())
 }
 
 // CASCA DE IO: modo `-f`. Abre um processo `container logs -f <nome>` por
@@ -265,7 +689,7 @@ fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>>
         print!("\x1b[2J\x1b[H");
         for nome in nomes {
             if let Some(niveis) = totais.get(nome) {
-                print!("{}", renderizar_container(nome, niveis));
+                print!("{}", renderizar_container(nome, None, niveis));
             }
         }
         // `print!` só escreve no buffer da stdout; sem `flush` o painel não
@@ -370,12 +794,49 @@ fn contar_niveis_container(conteudo: &str) -> BTreeMap<String, usize> {
     niveis
 }
 
+// Níveis que `docker logs` pode conter — mescla dos formatos supervisor
+// (DEBG, CRIT, ERRO, TRAC) com os formatos de app (DEBUG, INFO, WARN, ERROR).
+const NIVEIS_DOCKER: [&str; 12] = [
+    "TRACE", "TRAC", "DEBUG", "DEBG", "INFO", "WARN", "WARNING", "ERROR", "ERRO", "CRITICAL",
+    "CRIT", "FATAL",
+];
+
+// NÚCLEO PURO: conta ocorrências de níveis de log numa string, procurando em
+// qualquer token da linha (não apenas numa posição fixa). Funciona com os
+// formatos do supervisor ("2026-07-06 09:05:11,722 DEBG ..."), do container
+// logs ("2026-07-03 INFO ...") e de apps que logam no formato livre.
+fn contar_niveis_docker(conteudo: &str) -> BTreeMap<String, usize> {
+    let mut niveis = BTreeMap::new();
+    for linha in conteudo.lines() {
+        let limpa = remover_ansi(linha);
+        // Varre todos os tokens whitespace-delimited em busca de um nível
+        // conhecido. Usamos `any` que para no primeiro match (1 nível por
+        // linha, mesmo que a linha contenha múltiplas ocorrências).
+        if let Some(nivel) = limpa
+            .split_whitespace()
+            .find(|token| NIVEIS_DOCKER.contains(&token.to_uppercase().as_str()))
+        {
+            *niveis.entry(nivel.to_uppercase()).or_insert(0) += 1;
+        }
+    }
+    niveis
+}
+
 // Monta o bloco de texto (colorido) com os níveis de um container.
 // Recebe um `BTreeMap` "cru" (em vez do `struct Contagens` usado por
 // `renderizar`) porque aqui só existe uma dimensão de contagem (níveis) — não
 // há a segunda categoria "palavras-chave no texto" que o modo `stats` tem.
-fn renderizar_container(nome: &str, niveis: &BTreeMap<String, usize>) -> String {
-    let mut saida = format!("📦 {}\n", nome.bold());
+fn renderizar_container(
+    nome: &str,
+    status: Option<&str>,
+    niveis: &BTreeMap<String, usize>,
+) -> String {
+    let cabecalho = if let Some(s) = status && !s.is_empty() {
+        format!("📦 {}  ({})", nome.bold(), s.dimmed())
+    } else {
+        format!("📦 {}", nome.bold())
+    };
+    let mut saida = format!("{cabecalho}\n");
 
     // `any`: verdadeiro se existir ao menos uma entrada com contagem > 0;
     // pára na primeira que satisfizer, sem percorrer o mapa inteiro à toa.

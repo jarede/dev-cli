@@ -3,6 +3,7 @@ mod ai;
 mod cli;
 mod help;
 mod logs;
+mod tui;
 
 // Traz o método `parse()` (da trait `Parser`) para o escopo.
 use clap::Parser;

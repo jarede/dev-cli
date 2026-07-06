@@ -481,6 +481,10 @@ fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
             .split_whitespace()
             .find(|token| NIVEIS_DOCKER.contains(&token.to_uppercase().as_str()))
         {
+            // `entry(...).or_default()`: se o nível ainda não é chave do mapa,
+            // insere um `Vec` vazio (o `Default` de `Vec<String>`); em
+            // seguida `.push(limpa)` empilha a linha nesse `Vec`, seja ele
+            // recém-criado ou já existente.
             grupos
                 .entry(nivel.to_uppercase())
                 .or_default()
@@ -782,8 +786,14 @@ fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>>
     // descartados, ou seja, quando todas as threads produtoras acabarem.
     for (nome, linha) in rx {
         let niveis_da_linha = contar_niveis_container(&linha);
+        // `entry(nome).or_default()`: garante um `BTreeMap<String, usize>`
+        // vazio para containers que ainda não apareceram no canal, antes de
+        // somar os níveis desta linha nele.
         let acumulado = totais.entry(nome).or_default();
         for (nivel, quantidade) in niveis_da_linha {
+            // Mesmo idiom de `entry(...).or_insert(0) +=` usado em `contar` e
+            // `contar_niveis_container`: soma `quantidade` ao total daquele
+            // nível, partindo de `0` se for a primeira ocorrência.
             *acumulado.entry(nivel).or_insert(0) += quantidade;
         }
 
@@ -899,6 +909,12 @@ fn contar_niveis_container(conteudo: &str) -> BTreeMap<String, usize> {
             // "info" e "INFO" caiam sempre na mesma chave do mapa.
             let token_maiusculo = token.to_uppercase();
             if NIVEIS_CONTAINER.contains(&token_maiusculo.as_str()) {
+                // API `entry`: busca a chave `token_maiusculo` no mapa e, se
+                // ainda não existir, insere `0` antes de devolver a referência
+                // mutável ao valor (`or_insert(0)`). O `*` desreferencia essa
+                // referência para poder somar `1` no lugar, numa única
+                // expressão em vez de "verificar se existe, senão criar, senão
+                // incrementar".
                 *niveis.entry(token_maiusculo).or_insert(0) += 1;
             }
         }

@@ -14,16 +14,20 @@ use std::collections::{BTreeMap, HashSet};
 // `crossterm` é a crate que abstrai o terminal de forma multiplataforma
 // (Linux/macOS/Windows): captura eventos de teclado e alterna entre o modo
 // "raw" e o modo normal do terminal.
+// docs: https://docs.rs/crossterm/latest/crossterm/
 use crossterm::{
     event::{self, Event, KeyCode},
     // A macro `execute!` escreve comandos de terminal (aqui, trocar de tela)
     // diretamente no `stdout`, sem precisar montar uma string de escape ANSI
     // manualmente.
+    // docs: https://docs.rs/crossterm/latest/crossterm/macro.execute.html
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 // `ratatui` é a crate de "widgets" da TUI: sabe desenhar listas, bordas,
 // parágrafos etc. a partir de um `Frame` (a área de desenho de um quadro).
+// docs: https://docs.rs/ratatui/latest/ratatui/
+// docs: https://docs.rs/ratatui/latest/ratatui/struct.Frame.html
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -37,6 +41,7 @@ use rusqlite::Connection;
 // Dados de um container já resumidos, prontos para exibição: nome, contagem
 // de logs por nível (ordenada por nome do nível, graças ao `BTreeMap`) e o
 // texto de uptime que veio do banco (pode ser vazio se ainda não foi coletado).
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
 struct ContainerInfo {
     name: String,
     niveles: BTreeMap<String, i64>,
@@ -75,6 +80,7 @@ pub struct App {
     // Conjunto de índices das linhas que o usuário expandiu (Enter alterna
     // entre versão truncada e completa). `HashSet` porque só nos importa
     // "está expandida ou não", sem ordem nem valor associado.
+    // docs: https://doc.rust-lang.org/std/collections/struct.HashSet.html
     expanded: HashSet<usize>,
 }
 
@@ -85,6 +91,7 @@ impl App {
     // mal formado é um bug de programação, não uma condição esperada de
     // runtime — ainda assim, note que a convenção do projeto é evitar
     // `unwrap()` fora de teste; aqui ele sobrevive por pragmatismo da TUI.
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
     fn carregar_containers(conn: &Connection) -> Vec<ContainerInfo> {
         let mut stmt = conn
             .prepare(
@@ -96,6 +103,7 @@ impl App {
             .unwrap();
         // Mapa aninhado: container -> (nível -> total). O `BTreeMap` externo
         // dá a ordem alfabética dos containers "de graça".
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
         let mut dados: BTreeMap<String, BTreeMap<String, i64>> = BTreeMap::new();
         for row in stmt
             .query_map([], |r| {
@@ -108,11 +116,15 @@ impl App {
             // `query_map` devolve um iterador de `Result<(String, String, i64)>`
             // (uma linha pode falhar ao ser lida); `.flatten()` descarta os
             // `Err` e "desembrulha" só os `Ok`, produzindo direto as tuplas.
+            // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.flatten
             .flatten()
         {
             // `entry(...).or_default()` pega o sub-mapa daquele container
             // (criando um vazio se for a primeira vez que o vemos) e insere
             // o total daquele nível.
+            // docs: https://doc.rust-lang.org/std/collections/btree_map/struct.BTreeMap.html#method.entry
+            // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_default
             dados.entry(row.0).or_default().insert(row.1, row.2);
         }
 
@@ -122,6 +134,7 @@ impl App {
         // `init_db`), mas usamos `if let` em vez de `?`/`unwrap()` porque a
         // ausência de uptime não deve impedir a TUI de abrir — a query só é
         // executada se preparar com sucesso; se falhar, `up` fica vazio.
+        // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
         if let Ok(mut s) = conn.prepare("SELECT name, uptime FROM containers") {
             for row in s
                 .query_map([], |r| {
@@ -140,6 +153,8 @@ impl App {
         // nome (herdado da ordem do `BTreeMap`). `into_iter()` consome
         // `dados`, então cada `name`/`niveles` é movido (não copiado) para
         // dentro do `ContainerInfo`.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+        // docs: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html#tymethod.into_iter
         dados
             .into_iter()
             .map(|(name, niveles)| ContainerInfo {
@@ -149,6 +164,7 @@ impl App {
                 // inicialização não precisa bater com a ordem declarada, mas
                 // aqui importa a ordem de *avaliação*: `name` só é movido na
                 // última linha).
+                // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.get
                 uptime: up.get(&name).cloned().unwrap_or_default(),
                 name,
                 niveles,
@@ -171,6 +187,9 @@ impl App {
             // Aqui usamos `filter_map(|r| r.ok())` em vez de `.flatten()`
             // (equivalentes para `Result`) — mesma ideia: descarta linhas que
             // falharam ao decodificar, mantém só as que vieram como `Ok`.
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter_map
+            // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.ok
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.flatten
             .filter_map(|r| r.ok())
             .collect()
     }
@@ -193,11 +212,13 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     // e eco de teclas. Sem isso, o terminal só entregaria teclas ao programa
     // depois de Enter, e ecoaria cada tecla na tela — incompatível com uma
     // interface que reage a cada seta imediatamente.
+    // docs: https://docs.rs/crossterm/latest/crossterm/terminal/fn.enable_raw_mode.html
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     // "Alternate screen": troca para um buffer de tela separado (o mesmo
     // truque usado por `vim`/`less`/`htop`), preservando o conteúdo que já
     // estava no terminal para restaurar depois que a TUI fechar.
+    // docs: https://docs.rs/crossterm/latest/crossterm/terminal/struct.EnterAlternateScreen.html
     execute!(stdout, EnterAlternateScreen)?;
 
     // `CrosstermBackend` adapta o `stdout` (que sabe escrever bytes) para a
@@ -205,8 +226,12 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     // limpar áreas, etc.). O `Terminal` por cima disso cuida do double
     // buffering: compara o quadro novo com o anterior e só reescreve o que
     // mudou, evitando "flicker".
+    // docs: https://docs.rs/ratatui/latest/ratatui/backend/struct.CrosstermBackend.html
+    // docs: https://docs.rs/ratatui/latest/ratatui/terminal/struct.Terminal.html
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
+    // docs: https://docs.rs/ratatui/latest/ratatui/backend/struct.CrosstermBackend.html#method.new
     let mut terminal = ratatui::Terminal::new(backend)?;
+    // docs: https://docs.rs/ratatui/latest/ratatui/terminal/struct.Terminal.html#method.new
 
     // Estado inicial: começa na tela de containers, já carregada do banco;
     // as demais telas ficam vazias até o usuário navegar até elas.
@@ -233,11 +258,14 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         // `terminal.draw` recebe uma closure que recebe o `Frame` (a área de
         // desenho do quadro atual) e delega para `renderizar`, que decide
         // qual tela desenhar. O `?` propaga eventuais erros de IO do terminal.
+        // docs: https://docs.rs/ratatui/latest/ratatui/terminal/struct.Terminal.html#method.draw
+        // docs: https://docs.rs/ratatui/latest/ratatui/struct.Frame.html
         terminal.draw(|f| renderizar(f, &app))?;
 
         // `event::read()` bloqueia a thread até chegar um evento (tecla,
         // resize, etc.). Só nos interessam eventos de tecla; outros tipos
         // (ex.: redimensionar a janela) são ignorados pelo `if let`.
+        // docs: https://docs.rs/crossterm/latest/crossterm/event/fn.read.html
         if let Event::Key(key) = event::read()? {
             // Cada tela trata as teclas de um jeito diferente, então o
             // `match` externo escolhe o conjunto de atalhos pela tela ativa,
@@ -248,12 +276,15 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
                     // estourar por baixo de zero (índice `usize` não pode ser
                     // negativo; sem `saturating_sub` um `0 - 1` faria panic
                     // por overflow em modo debug).
+                    // docs: https://doc.rust-lang.org/std/primitive.usize.html#method.saturating_sub
                     KeyCode::Up | KeyCode::Char('k') => {
                         app.selected_container = app.selected_container.saturating_sub(1)
                     }
                     // `j`/seta-baixo: desce a seleção, mas sem passar do
                     // último índice válido (`max`). `saturating_add` evita
                     // overflow por cima; `.min(max)` trava no teto.
+                    // docs: https://doc.rust-lang.org/std/primitive.usize.html#method.saturating_add
+                    // docs: https://doc.rust-lang.org/std/primitive.usize.html#method.min
                     KeyCode::Down | KeyCode::Char('j') => {
                         let max = app.containers.len().saturating_sub(1);
                         app.selected_container = app.selected_container.saturating_add(1).min(max);
@@ -266,10 +297,13 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
                         // borrow checker não deixaria manter uma referência
                         // para dentro de `app` enquanto mutamos `app` logo
                         // abaixo).
+                        // docs: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
                         let nome = app.container_atual().name.clone();
                         // Copia os pares (nível, total) do `BTreeMap` (que
                         // está ordenado por nome do nível) para um `Vec` que
                         // podemos reordenar livremente por contagem.
+                        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+                        // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
                         let mut v: Vec<_> = app
                             .container_atual()
                             .niveles
@@ -279,6 +313,8 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
                         // Ordena do maior total para o menor: `Reverse` inverte
                         // a ordem natural (`sort_by_key` por si só ordenaria
                         // crescente).
+                        // docs: https://doc.rust-lang.org/std/cmp/struct.Reverse.html
+                        // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by_key
                         v.sort_by_key(|b| std::cmp::Reverse(b.1));
                         app.niveles = v;
                         app.selected_nivel = 0;
@@ -349,8 +385,13 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     // `ratatui` o esconde durante o desenho). Isso roda mesmo se `res` for um
     // `Err` — importante para não deixar o terminal do usuário "quebrado"
     // (sem eco de tecla, preso na tela alternada) caso algo falhe no loop.
+    // docs: https://docs.rs/ratatui/latest/ratatui/
+    // docs: https://docs.rs/crossterm/latest/crossterm/terminal/fn.disable_raw_mode.html
     disable_raw_mode()?;
+    // docs: https://docs.rs/ratatui/latest/ratatui/terminal/struct.Terminal.html#method.backend_mut
+    // docs: https://docs.rs/crossterm/latest/crossterm/terminal/struct.LeaveAlternateScreen.html
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    // docs: https://docs.rs/ratatui/latest/ratatui/terminal/struct.Terminal.html#method.show_cursor
     terminal.show_cursor()?;
 
     res
@@ -367,6 +408,7 @@ pub fn run_tui(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
 // Escolhe qual tela desenhar de acordo com `app.screen`. É chamada a cada
 // volta do loop de eventos, mesmo quando nada mudou (o `ratatui::Terminal`
 // já otimiza o redesenho comparando com o quadro anterior).
+// docs: https://docs.rs/ratatui/latest/ratatui/terminal/struct.Terminal.html
 fn renderizar(f: &mut Frame, app: &App) {
     match app.screen {
         Screen::Containers => renderizar_containers(f, app),
@@ -381,6 +423,7 @@ fn renderizar_containers(f: &mut Frame, app: &App) {
     // Monta uma linha de texto por container. `enumerate()` dá o índice `i`
     // junto com a referência `c`, necessário para saber qual linha é a
     // selecionada e destacá-la.
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.enumerate
     let items: Vec<ListItem> = app
         .containers
         .iter()
@@ -434,6 +477,8 @@ fn renderizar_containers(f: &mut Frame, app: &App) {
     // espaço restante (`Constraint::Min(1)`) e a linha de ajuda fica fixa em
     // 1 linha na base (`Constraint::Length(1)`). `f.area()` é o retângulo
     // total disponível no terminal neste quadro.
+    // docs: https://docs.rs/ratatui/latest/ratatui/layout/enum.Constraint.html
+    // docs: https://docs.rs/ratatui/latest/ratatui/struct.Frame.html#method.area
     let area = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -524,6 +569,9 @@ fn renderizar_linhas(f: &mut Frame, app: &App) {
             // `ListItem::new` precisa de uma `String` própria, não de uma
             // referência emprestada de `app.linhas`). Não expandida: usa a
             // versão truncada a 120 caracteres.
+            // docs: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
+            // docs: https://docs.rs/ratatui/latest/ratatui/widgets/struct.ListItem.html#method.new
+            // docs: https://doc.rust-lang.org/std/string/struct.String.html
             let texto = if app.expanded.contains(&i) {
                 linha.clone()
             } else {

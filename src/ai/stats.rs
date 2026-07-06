@@ -4,9 +4,12 @@
 // mesmo comportamento de hoje, sem mudança.
 // `chrono::Local` dá acesso ao relógio/fuso horário local da máquina, usado
 // para descobrir "qual é o mês atual" quando o usuário não passa `--periodo`.
+// docs: https://docs.rs/chrono/latest/chrono/offset/struct.Local.html
 use chrono::Local;
 // `Args`/`Subcommand`: macros de derive do clap — mesma ideia de `src/logs.rs`:
 // geram o parser de linha de comando a partir dos campos/variantes anotados.
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 use clap::Args;
 use clap::Subcommand;
 
@@ -34,6 +37,9 @@ pub struct StatsArgs {
     // `LogsArgs`): aqui o subcomando é OPCIONAL — o clap permite rodar
     // `ai stats` sozinho (cai em `None`, dashboard combinado) ou com um
     // provedor explícito (`Some(...)`).
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.Some
     #[command(subcommand)]
     comando: Option<StatsCommands>,
 
@@ -68,6 +74,7 @@ impl StatsArgs {
         // `match` sobre a referência do enum. Cada variante carrega um tipo de
         // args diferente (`OpencodeArgs` vs `ClaudeArgs`). Sem subcomando
         // (`None`), roda o dashboard combinado.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
         match &self.comando {
             Some(StatsCommands::Opencode(args)) => args.execute(),
             Some(StatsCommands::Claude(args)) => args.execute(),
@@ -88,6 +95,9 @@ impl StatsArgs {
         // (`self.periodo`) ou, na ausência dele, o mês atual formatado como
         // "YYYY-MM" (`unwrap_or_else` só roda o `Local::now()` se `periodo`
         // for `None` — evita calcular a data à toa quando não é necessário).
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap_or_else
+        // docs: https://docs.rs/chrono/latest/chrono/offset/struct.Local.html#method.now
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
         let periodo = if self.historico {
             String::new()
         } else {
@@ -102,15 +112,18 @@ impl StatsArgs {
         // Claude não tem um `Result` de carga (não lê banco externo que possa
         // faltar) — "vazio" aqui é o único jeito de saber que não há dados
         // para o período.
+        // docs: https://doc.rust-lang.org/std/result/enum.Result.html
         let claude_vazio =
             dados_claude.sessoes.is_empty() && dados_claude.tokens_por_dia.is_empty();
         // OpenCode lê de um banco SQLite próprio, que pode não existir; por
         // isso a carga devolve `Result`, e tratamos tanto erro quanto "vazio"
         // do mesmo jeito: provedor pulado.
+        // docs: https://doc.rust-lang.org/std/result/enum.Result.html
         let resultado_opencode = opencode::carregar_dados(&periodo);
 
         // Cada provedor vira `None` (e entra em `pulados`) se não tiver
         // dados no período ou se a carga falhou (banco ausente, etc.).
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
         let mut pulados: Vec<&str> = Vec::new();
         let claude_opt = if claude_vazio {
             pulados.push("Claude Code");
@@ -121,6 +134,7 @@ impl StatsArgs {
         // `match` com guarda (`if !(...)`): só entra no primeiro braço se o
         // resultado for `Ok` E os dados não estiverem vazios; qualquer outra
         // combinação (erro OU `Ok` vazio) cai no `_` e marca como pulado.
+        // docs: https://doc.rust-lang.org/std/result/enum.Result.html#variant.Ok
         let opencode_opt = match resultado_opencode {
             Ok(dados) if !(dados.sessoes.is_empty() && dados.tokens_por_dia.is_empty()) => {
                 Some(dados)
@@ -137,6 +151,7 @@ impl StatsArgs {
         // mensagem (não há dashboard para montar). Quando só um está
         // presente, ele "é" o resultado combinado. Só quando os dois têm
         // dados é que `mesclar_dados` de fato combina as duas fontes.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html
         let dados = match (claude_opt, opencode_opt) {
             (None, None) => return Ok(format!("Nenhuma sessão encontrada para {periodo}")),
             (Some(a), None) => a,
@@ -152,12 +167,17 @@ impl StatsArgs {
         // descartando a contagem de sessões; `.sum()` soma tudo em um único
         // `f64`. O tipo de retorno é inferido pela anotação `: f64` na
         // variável.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.values
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum
+        // docs: https://doc.rust-lang.org/std/primitive.f64.html
         let total_horas: f64 = por_dia.values().map(|(h, _)| h).sum();
         // Texto extra avisando quais provedores ficaram de fora, só quando
         // há algum: `pulados.join(" e do ")` junta "Claude Code" e/ou
         // "OpenCode" com o conectivo, formando algo como "OpenCode e do
         // Claude Code" quando os dois faltam (situação rara, já tratada
         // acima pelo `return` antecipado).
+        // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.join
         let nota_pulados = if pulados.is_empty() {
             String::new()
         } else {
@@ -180,6 +200,7 @@ impl StatsArgs {
             // sentido declará-las no nível do módulo. `#[derive(serde::Serialize)]`
             // gera automaticamente o código que converte cada struct para
             // JSON, campo a campo, usando o nome do campo Rust como chave.
+            // docs: https://docs.rs/serde/latest/serde/trait.Serialize.html
             #[derive(serde::Serialize)]
             struct LinhaDia {
                 dia: String,
@@ -213,12 +234,16 @@ impl StatsArgs {
                 // `"Claude Code"`/`"OpenCode"`); o JSON final precisa ser
                 // dono dos seus dados (`Vec<String>`), então `.to_string()`
                 // em cada item faz a cópia dono.
+                // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
+                // docs: https://doc.rust-lang.org/std/string/trait.ToString.html#tymethod.to_string
                 provedores_pulados: pulados.iter().map(|p| p.to_string()).collect(),
                 total_horas,
                 // `por_dia` é um mapa dia -> (horas, sessoes); `.iter()`
                 // percorre pares (chave, valor) por referência, e o `map`
                 // desestrutura a tupla `(horas, sessoes)` direto no
                 // parâmetro do closure para montar cada `LinhaDia`.
+                // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.iter
+                // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
                 dias: por_dia
                     .iter()
                     .map(|(dia, (horas, sessoes))| LinhaDia {
@@ -227,6 +252,9 @@ impl StatsArgs {
                         // emprestada do mapa para copiar o valor (ambos são
                         // tipos `Copy`: `f64` e `u32`), já que a struct
                         // `LinhaDia` precisa ser dona dos seus campos.
+                        // docs: https://doc.rust-lang.org/std/marker/trait.Copy.html
+                        // docs: https://doc.rust-lang.org/std/primitive.f64.html
+                        // docs: https://doc.rust-lang.org/std/primitive.u32.html
                         horas: *horas,
                         sessoes: *sessoes,
                     })
@@ -249,6 +277,8 @@ impl StatsArgs {
             // `serde_json::to_string_pretty`: serializa a struct para uma
             // String JSON indentada (legível por humanos); `?` propaga o
             // erro se, por algum motivo, a serialização falhar.
+            // docs: https://docs.rs/serde_json/latest/serde_json/fn.to_string_pretty.html
+            // docs: https://doc.rust-lang.org/std/result/index.html#the-question-mark-operator-
             return Ok(serde_json::to_string_pretty(&saida_json)?);
         }
 

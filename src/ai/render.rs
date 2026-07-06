@@ -7,6 +7,8 @@
 // ordenadas automaticamente, o que é essencial aqui — o heatmap, as tabelas
 // "por dia"/"por semana" e os streaks dependem de iterar datas em ordem
 // crescente sem precisar chamar `.sort()` manualmente.
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeSet.html
 use std::collections::{BTreeMap, BTreeSet};
 
 // `chrono`: crate de data/hora. `NaiveDate` é uma data sem fuso horário (só
@@ -16,10 +18,22 @@ use std::collections::{BTreeMap, BTreeSet};
 // é a trait que dá os métodos `.weekday()`, `.month()`, `.month0()` a
 // qualquer tipo de data do chrono. `Duration` representa um intervalo (ex:
 // `Duration::days(1)`) que pode ser somado/subtraído de uma data.
+// docs: https://docs.rs/chrono/latest/chrono/naive/struct.NaiveDate.html
+// docs: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
+// docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html
+// docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html#tymethod.weekday
+// docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html#tymethod.month
+// docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html#tymethod.month0
+// docs: https://docs.rs/chrono/latest/chrono/struct.Duration.html
+// docs: https://docs.rs/chrono/latest/chrono/struct.Duration.html#method.days
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc};
 // Trait de extensão do `owo-colors`: importá-la dá a qualquer tipo `Display`
 // métodos como `.truecolor(r,g,b)`, `.cyan()`, `.bold()`, que devolvem um
 // wrapper que, ao ser formatado, embute os códigos de escape ANSI de cor.
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.truecolor
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.cyan
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.bold
 use owo_colors::OwoColorize;
 
 // Teto e piso de duração de uma sessão (ver `duracao_sessao`): sessões que
@@ -52,6 +66,7 @@ pub fn numero_compacto(valor: f64) -> String {
 pub fn formatar_horas(horas: f64) -> String {
     // `.round()` evita que erros de ponto flutuante (ex: 1.4999999999)
     // arredondem minutos pra baixo por acidente.
+    // docs: https://doc.rust-lang.org/std/primitive.f64.html#method.round
     let minutos_totais = (horas * 60.0).round() as i64;
     // `{:02}` no segundo argumento: preenche com zero à esquerda até 2
     // dígitos (ex: "05" em vez de "5"), para os minutos sempre ocuparem duas
@@ -78,6 +93,9 @@ pub fn nivel_intensidade(valor: f64, maximo: f64) -> u8 {
 // braço do `match` devolve um tipo diferente por baixo do capô, por isso
 // convertemos pra `String` já dentro do braço (mesmo truque de
 // `colorir_nivel` em `src/logs.rs`).
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.truecolor
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.cyan
 fn aplicar_cor(nivel: u8, texto: &str) -> String {
     match nivel {
         0 => texto.truecolor(128, 128, 128).to_string(),
@@ -104,6 +122,8 @@ pub fn renderizar_barra(valor: f64, maximo: f64, largura_max: usize, cores: bool
     // vezes; `.min(largura_max)` é uma proteção contra arredondamento que
     // ultrapasse o próprio máximo (ex: valor == maximo com erro de ponto
     // flutuante).
+    // docs: https://doc.rust-lang.org/std/primitive.str.html#method.repeat
+    // docs: https://doc.rust-lang.org/std/cmp/trait.Ord.html#method.min
     let barra = "█".repeat(comprimento.min(largura_max));
     if cores {
         aplicar_cor(nivel_intensidade(valor, maximo), &barra)
@@ -152,6 +172,7 @@ pub fn renderizar_pizza(fatias: &[(String, f64)], raio: i32, cores: bool) -> Vec
 
     // Ângulo de início/fim de cada fatia, em radianos — soma cumulativa
     // das proporções ao redor do círculo completo (`TAU` = 2π).
+    // docs: https://doc.rust-lang.org/std/f64/consts/constant.TAU.html
     let mut angulos = Vec::with_capacity(fatias.len());
     let mut acumulado = 0.0;
     for (_, valor) in fatias {
@@ -162,6 +183,7 @@ pub fn renderizar_pizza(fatias: &[(String, f64)], raio: i32, cores: bool) -> Vec
     // A última fatia pode ficar levemente abaixo de TAU por erro de
     // ponto flutuante — força o fim dela até TAU pra não sobrar um
     // fatiazinho sem dono na borda entre a última e a primeira.
+    // docs: https://doc.rust-lang.org/std/f64/consts/constant.TAU.html
     if let Some(ultima) = angulos.last_mut() {
         ultima.1 = std::f64::consts::TAU;
     }
@@ -184,6 +206,7 @@ pub fn renderizar_pizza(fatias: &[(String, f64)], raio: i32, cores: bool) -> Vec
             // matemática padrão mas não a de um gráfico de pizza). `-y`
             // inverte o eixo vertical porque linhas de terminal crescem
             // pra baixo.
+            // docs: https://doc.rust-lang.org/std/primitive.f64.html#method.atan2
             let y_up = -y;
             let mut angulo = x.atan2(y_up);
             if angulo < 0.0 {
@@ -209,6 +232,8 @@ pub fn renderizar_pizza(fatias: &[(String, f64)], raio: i32, cores: bool) -> Vec
 // `Copy`: a struct é só dois `u32`, mais barato copiar do que emprestar.
 // `Default`: dá `Streaks::default()` com os dois campos zerados — usado
 // tanto no teste "sem dias ativos" quanto como valor inicial do cálculo.
+// docs: https://doc.rust-lang.org/std/marker/trait.Copy.html
+// docs: https://doc.rust-lang.org/std/default/trait.Default.html
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Streaks {
     pub atual: u32,
@@ -219,21 +244,26 @@ pub struct Streaks {
 // recorde histórico e a sequência atual (contando a partir de "hoje" pra
 // trás). Recebe `hoje` como parâmetro (em vez de chamar `Local::now()`
 // internamente) para a função ficar pura e testável com qualquer data fixa.
+// docs: https://docs.rs/chrono/latest/chrono/offset/struct.Local.html#method.now
 pub fn calcular_streaks(dias_ativos: &BTreeSet<NaiveDate>, hoje: NaiveDate) -> Streaks {
     let mut recorde = 0u32;
     let mut sequencia = 0u32;
     // `Option<NaiveDate>`: `None` antes da primeira iteração (não há "dia
     // anterior" ainda); vira `Some` a partir da primeira volta do loop.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
     let mut anterior: Option<NaiveDate> = None;
 
     // `BTreeSet` já itera em ordem crescente — não precisamos ordenar.
     // `&dia` desestrutura a referência que o `for` dá sobre cada elemento do
     // set (iterar um `BTreeSet<NaiveDate>` empresta `&NaiveDate`; como
     // `NaiveDate` é `Copy`, `&dia` no padrão já copia o valor para `dia`).
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeSet.html#method.iter
+    // docs: https://doc.rust-lang.org/std/marker/trait.Copy.html
     for &dia in dias_ativos {
         // `match` sobre o `Option`: só incrementa a sequência se existir dia
         // anterior E ele for exatamente um dia antes do atual; qualquer
         // outro caso (primeiro dia, ou um "buraco" no meio) reinicia em 1.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html
         match anterior {
             Some(dia_anterior) if dia == dia_anterior + Duration::days(1) => sequencia += 1,
             _ => sequencia = 1,
@@ -265,6 +295,10 @@ pub fn limiares_atividade(tokens_por_dia: &BTreeMap<NaiveDate, i64>) -> [i64; 3]
     // `.filter(...)` descarta dias sem atividade real; `.collect()` junta
     // tudo num `Vec` novo, já que precisamos ordenar (`BTreeMap` não permite
     // reordenar só os valores).
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.values
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.copied
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     let mut valores: Vec<i64> = tokens_por_dia
         .values()
         .copied()
@@ -272,6 +306,8 @@ pub fn limiares_atividade(tokens_por_dia: &BTreeMap<NaiveDate, i64>) -> [i64; 3]
         .collect();
     // `sort_unstable`: mais rápido que `sort` porque não preserva a ordem
     // relativa de elementos iguais — irrelevante aqui, já que são só números.
+    // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_unstable
+    // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.sort
     valores.sort_unstable();
 
     if valores.is_empty() {
@@ -309,6 +345,7 @@ pub fn nivel_atividade(tokens: Option<i64>, limiares: &[i64; 3]) -> u8 {
 }
 
 // Meses abreviados em pt-br, indexados por `NaiveDate::month0()` (0 = jan).
+// docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html#tymethod.month0
 const MESES: [&str; 12] = [
     "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 ];
@@ -316,6 +353,7 @@ const MESES: [&str; 12] = [
 fn domingo_da_semana(dia: NaiveDate) -> NaiveDate {
     // `num_days_from_sunday`: domingo=0 .. sábado=6 — exatamente quanto
     // subtrair pra voltar ao domingo daquela semana.
+    // docs: https://docs.rs/chrono/latest/chrono/enum.Weekday.html#method.num_days_from_sunday
     dia - Duration::days(dia.weekday().num_days_from_sunday() as i64)
 }
 
@@ -326,6 +364,7 @@ fn domingo_da_semana(dia: NaiveDate) -> NaiveDate {
 fn linha_dos_meses(primeiro_domingo: NaiveDate, semanas: u32) -> String {
     // Um `Vec<char>` de espaços, uma célula por semana — vamos sobrescrever
     // só as posições onde um rótulo de mês começa.
+    // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
     let mut celulas = vec![' '; semanas as usize];
     // Rastreia o mês da última semana processada; `None` no início força a
     // primeira semana a sempre escrever seu rótulo.
@@ -336,11 +375,14 @@ fn linha_dos_meses(primeiro_domingo: NaiveDate, semanas: u32) -> String {
         // Só escreve o rótulo quando o mês muda em relação à semana
         // anterior — senão "Jun" apareceria repetido em toda coluna daquele
         // mês.
+        // docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html#tymethod.month
         if Some(dia.month()) != mes_anterior {
             let rotulo = MESES[dia.month0() as usize];
             // `.chars().enumerate()`: percorre cada letra do rótulo junto
             // com seu deslocamento (0, 1, 2...), para espalhar "Jun" pelas
             // colunas seguintes à da mudança de mês.
+            // docs: https://doc.rust-lang.org/std/primitive.str.html#method.chars
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.enumerate
             for (deslocamento, letra) in rotulo.chars().enumerate() {
                 let coluna = semana as usize + deslocamento;
                 // Protege contra o rótulo estourar a última coluna do
@@ -355,6 +397,8 @@ fn linha_dos_meses(primeiro_domingo: NaiveDate, semanas: u32) -> String {
 
     // `into_iter().collect()`: reconstrói uma `String` a partir do
     // `Vec<char>`, consumindo o vetor (não precisamos mais dele).
+    // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.into_iter
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     celulas.into_iter().collect()
 }
 
@@ -374,6 +418,7 @@ fn celula_heatmap(nivel: u8, cores: bool) -> String {
             (60, 210, 110),
         ];
         let (r, g, b) = PALETA[nivel as usize];
+        // docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.truecolor
         "■".truecolor(r, g, b).to_string()
     } else {
         ["□", "░", "▒", "▓", "█"][nivel as usize].to_string()
@@ -401,6 +446,8 @@ pub fn renderizar_heatmap(
     // `vec![...]` com um único elemento: a linha de meses já entra como
     // primeira linha do resultado; as linhas de dias da semana são
     // adicionadas (`push`) depois, uma por vez.
+    // docs: https://doc.rust-lang.org/std/macro.vec.html
+    // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.push
     let mut linhas = vec![format!(
         "      {}",
         linha_dos_meses(primeiro_domingo, semanas)
@@ -427,6 +474,8 @@ pub fn renderizar_heatmap(
             // converte para `Option<i64>` (o valor é `Copy`), que é o que
             // `nivel_atividade` espera — `None` natural quando o dia não
             // está no mapa (sem atividade registrada).
+            // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.get
+            // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.copied
             let nivel = nivel_atividade(tokens_por_dia.get(&dia).copied(), &limiares);
             linha.push_str(&celula_heatmap(nivel, cores));
         }
@@ -437,6 +486,9 @@ pub fn renderizar_heatmap(
     // intenso. `(0..5).map(...)` gera os cinco níveis e `.collect()` junta
     // as células (cada uma já é uma `String`, possivelmente colorida) numa
     // única `String`.
+    // docs: https://doc.rust-lang.org/std/ops/struct.Range.html
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     let legenda: String = (0..5).map(|nivel| celula_heatmap(nivel, cores)).collect();
     linhas.push(format!("      Menos {legenda} Mais"));
     linhas
@@ -459,6 +511,10 @@ pub struct Sessao {
 // trabalho contínuo). `?` sobre `.first()`/`.last()` devolve `None` pra
 // um slice vazio em vez de exigir `.expect()` numa invariante que quem
 // chama já garante (sempre monta o vetor com pelo menos 1 elemento).
+// docs: https://doc.rust-lang.org/std/option/index.html#the-question-mark-operator-
+// docs: https://doc.rust-lang.org/std/primitive.slice.html#method.first
+// docs: https://doc.rust-lang.org/std/primitive.slice.html#method.last
+// docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.expect
 pub fn duracao_sessao(horarios: &[DateTime<Utc>]) -> Option<f64> {
     let inicio = *horarios.first()?;
     if horarios.len() < 2 {
@@ -472,6 +528,9 @@ pub fn duracao_sessao(horarios: &[DateTime<Utc>]) -> Option<f64> {
 // Mapa dia -> (soma de horas, quantidade de sessões).
 // `entry(...).or_insert((0.0, 0))`: pega a entrada existente ou cria zerada,
 // sem precisar de `if contains_key` — evita uma segunda busca na árvore.
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+// docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_insert
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.contains_key
 pub fn agregar_por_dia(sessoes: &[Sessao]) -> BTreeMap<NaiveDate, (f64, u32)> {
     let mut mapa: BTreeMap<NaiveDate, (f64, u32)> = BTreeMap::new();
     for sessao in sessoes {
@@ -486,6 +545,7 @@ pub fn agregar_por_dia(sessoes: &[Sessao]) -> BTreeMap<NaiveDate, (f64, u32)> {
 // conjunto de dias distintos com atividade naquela semana).
 // `num_days_from_monday()`: segunda=0 .. domingo=6 — exatamente quanto
 // subtrair da data para voltar à segunda daquela semana.
+// docs: https://docs.rs/chrono/latest/chrono/enum.Weekday.html#method.num_days_from_monday
 pub fn agregar_por_semana(
     sessoes: &[Sessao],
 ) -> BTreeMap<NaiveDate, (f64, u32, BTreeSet<NaiveDate>)> {
@@ -511,6 +571,7 @@ pub fn agregar_por_semana(
 /// Anthropic distingue: entrada "fresca", cache write, cache read e saída
 /// — ver `precos::CustoDetalhado`. Não há outros tipos de cobrança de
 /// token; o relatório mostra exatamente essas quatro parcelas.
+/// docs: https://docs.rs/serde/latest/serde/trait.Serialize.html
 #[derive(Debug, serde::Serialize)]
 pub struct ModeloUso {
     pub modelo: String,
@@ -563,6 +624,9 @@ pub struct DadosProvedor {
 /// distingue as linhas na tabela renderizada, então não precisa reagrupar)
 /// e custo somado. `sem_preco` passa por um `BTreeSet` só para ordenar e
 /// remover duplicatas entre os dois provedores.
+/// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+/// docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_insert
+/// docs: https://doc.rust-lang.org/std/collections/struct.BTreeSet.html
 pub fn mesclar_dados(mut a: DadosProvedor, b: DadosProvedor) -> DadosProvedor {
     for (dia, tokens) in b.tokens_por_dia {
         *a.tokens_por_dia.entry(dia).or_insert(0) += tokens;
@@ -612,11 +676,16 @@ pub fn renderizar_dashboard(
     // `Local::now()` pega o instante atual no fuso horário local da
     // máquina; `.date_naive()` descarta a hora, ficando só com a data —
     // é o "hoje" usado tanto no heatmap quanto no cálculo de streak.
+    // docs: https://docs.rs/chrono/latest/chrono/offset/struct.Local.html#method.now
+    // docs: https://docs.rs/chrono/latest/chrono/struct.DateTime.html#method.date_naive
     let hoje = Local::now().date_naive();
     // `.keys()` itera só as datas do mapa (ignora os valores de tokens);
     // `.copied()` tira a referência (`NaiveDate` é `Copy`); `.collect()`
     // monta um `BTreeSet` novo — perdemos a contagem de tokens de propósito,
     // aqui só interessa "quais dias tiveram alguma atividade".
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.keys
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.copied
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     let dias_ativos: BTreeSet<NaiveDate> = tokens_por_dia.keys().copied().collect();
     let streaks = calcular_streaks(&dias_ativos, hoje);
 
@@ -626,6 +695,9 @@ pub fn renderizar_dashboard(
     // `.values()` itera as tuplas `(horas, sessões)`/`(horas, sessões, dias)`
     // agregadas; `.map(|(h, _)| h)` extrai só o campo de horas, descartando
     // o resto da tupla; `.sum()` soma tudo num único `f64`.
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.values
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum
     let total_horas: f64 = por_dia.values().map(|(h, _)| h).sum();
     // `.fold(0.0, f64::max)`: percorre os valores acumulando o maior já
     // visto, começando de `0.0`. Preferimos `fold` a `.max()` do iterador
@@ -633,6 +705,10 @@ pub fn renderizar_dashboard(
     // `Iterator::max()` padrão não compila para `f64` sem um comparador
     // explícito — `f64::max` já resolve isso tratando `NaN` de forma
     // definida.
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.fold
+    // docs: https://doc.rust-lang.org/std/primitive.f64.html#method.max
+    // docs: https://doc.rust-lang.org/std/cmp/trait.Ord.html
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.max
     let max_dia = por_dia.values().map(|(h, _)| *h).fold(0.0, f64::max);
     let max_semana = por_semana.values().map(|(h, _, _)| *h).fold(0.0, f64::max);
 
@@ -640,11 +716,13 @@ pub fn renderizar_dashboard(
     // `Option<f64>`, descartando o erro específico — aqui só nos importa se
     // deu certo ou não (a seção de custo total decide o que exibir com
     // `match taxa_brl`, mais abaixo).
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.ok
     let taxa_brl = crate::ai::cambio::buscar_taxa_usd_brl().ok();
 
     // `.bold()` sempre emite o escape ANSI, mesmo sem cor — por isso o
     // helper checa `cores` antes de aplicar. Usado no cabeçalho e no nome
     // de cada modelo na tabela.
+    // docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.bold
     let negrito = |texto: &str| -> String {
         if cores {
             texto.bold().to_string()
@@ -686,6 +764,9 @@ pub fn renderizar_dashboard(
     // Mesmo padrão `iter().map(campo).sum()` repetido quatro vezes: para
     // cada tipo de cobrança, percorre todos os modelos (`.iter()` empresta
     // cada `ModeloUso`, sem consumir o slice) e soma aquele campo isolado.
+    // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.iter
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum
     let tokens_entrada_total: i64 = modelos.iter().map(|m| m.tokens_entrada).sum();
     let tokens_cache_escrita_total: i64 = modelos.iter().map(|m| m.tokens_cache_escrita).sum();
     let tokens_cache_leitura_total: i64 = modelos.iter().map(|m| m.tokens_cache_leitura).sum();
@@ -808,6 +889,10 @@ pub fn renderizar_dashboard(
     // para colocar o nome dentro do novo `Vec<(String, f64)>` (que precisa
     // ser dono do próprio conteúdo) é preciso copiar a `String`, não apenas
     // emprestá-la.
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
+    // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.clone
     let mut fatias_pizza: Vec<(String, f64)> = modelos
         .iter()
         .filter(|m| m.tokens_totais() > 0)
@@ -819,6 +904,12 @@ pub fn renderizar_dashboard(
     // devolve `Option<Ordering>`, e o `unwrap_or(Equal)` trata o caso
     // (que não deveria ocorrer aqui, já que tokens nunca são `NaN`) tratando
     // como empate em vez de arriscar um panic.
+    // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.sort_by
+    // docs: https://doc.rust-lang.org/std/primitive.f64.html#method.partial_cmp
+    // docs: https://doc.rust-lang.org/std/cmp/trait.Ord.html
+    // docs: https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap_or
+    // docs: https://doc.rust-lang.org/std/cmp/enum.Ordering.html
     fatias_pizza.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     const RAIO_PIZZA: i32 = 6;
@@ -828,6 +919,7 @@ pub fn renderizar_dashboard(
     // precisamos do índice para escolher o mesmo símbolo/cor usados na
     // fatia correspondente do desenho (`renderizar_pizza` cicla os mesmos
     // arrays na mesma ordem).
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.enumerate
     let legenda_pizza: Vec<String> = fatias_pizza
         .iter()
         .enumerate()
@@ -867,6 +959,10 @@ pub fn renderizar_dashboard(
         // (a assinatura de `unwrap_or` pede o mesmo tipo dos dois lados);
         // `.unwrap_or(&linha_vazia_pizza)` preenche com espaços em branco do
         // tamanho certo quando a pizza já terminou mas a legenda continua.
+        // docs: https://doc.rust-lang.org/std/primitive.slice.html#method.get
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.map
+        // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.as_str
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap_or
         let esquerda = pizza
             .get(i)
             .map(String::as_str)
@@ -1006,6 +1102,9 @@ pub fn renderizar_dashboard(
     // `trim_end`: remove as quebras de linha finais acumuladas pelos vários
     // `push_str`/`push('\n')` ao longo da função — quem imprime (`ai/*.rs`)
     // decide o espaçamento final, então devolvemos o texto "limpo" na ponta.
+    // docs: https://doc.rust-lang.org/std/primitive.str.html#method.trim_end
+    // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.push_str
+    // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.push
     saida.trim_end().to_string()
 }
 
@@ -1111,6 +1210,8 @@ mod tests {
     fn data(ano: i32, mes: u32, dia: u32) -> NaiveDate {
         // `expect` aqui é seguro: as datas nos testes são sempre válidas,
         // escritas à mão — não é entrada externa que possa falhar.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.expect
+        // docs: https://docs.rs/chrono/latest/chrono/naive/struct.NaiveDate.html#method.from_ymd_opt
         NaiveDate::from_ymd_opt(ano, mes, dia).expect("data de teste válida")
     }
 

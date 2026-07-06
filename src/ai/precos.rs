@@ -20,6 +20,8 @@ pub struct Preco {
 // Anthropic. Devolve `Option<Preco>`: `None` quando o modelo não está
 // cadastrado aqui (modelo novo, nome digitado diferente, etc.) — quem chama
 // decide o que fazer na ausência (normalmente exibir "não estimado").
+// docs: https://doc.rust-lang.org/std/option/enum.Option.html
+// docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
 pub fn preco_do_modelo(modelo: &str) -> Option<Preco> {
     match modelo {
         "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6" => Some(Preco {
@@ -87,6 +89,7 @@ impl CustoDetalhado {
 // Núcleo puro: tokens -> custo em USD por tipo, ou `None` se o modelo não
 // estiver na tabela (o relatório mostra "não estimado" em vez de inventar
 // um número).
+// docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
 pub fn calcular_custo_detalhado(
     modelo: &str,
     tokens_entrada: i64,
@@ -97,6 +100,8 @@ pub fn calcular_custo_detalhado(
     // `?` no `Option`: se `preco_do_modelo` devolver `None` (modelo
     // desconhecido), a função inteira retorna `None` aqui mesmo, sem
     // precisarmos escrever um `match`/`if let` explícito.
+    // docs: https://doc.rust-lang.org/std/option/index.html#the-question-mark-operator-
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
     let preco = preco_do_modelo(modelo)?;
     // Recebe a taxa como parâmetro em vez de fixá-la: assim o mesmo cálculo
     // (tokens / 1M * taxa) serve pras quatro taxas diferentes abaixo, sem
@@ -109,6 +114,10 @@ pub fn calcular_custo_detalhado(
     // da divisão por 1_000_000.0 é fracionário (ex.: 0.5 milhão de tokens).
     // `Some(...)`: envolve o resultado no variante presente do `Option`,
     // já que a função só chega até aqui quando o modelo foi encontrado.
+    // docs: https://doc.rust-lang.org/std/primitive.i64.html
+    // docs: https://doc.rust-lang.org/std/primitive.f64.html
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.Some
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
     Some(CustoDetalhado {
         entrada: custo(tokens_entrada, preco.entrada_por_mtok),
         // Cache write usa a MESMA taxa de entrada do modelo, só que
@@ -178,6 +187,7 @@ pub fn distribuir_custo_proporcional(
 // `#[cfg(test)]`: este módulo só entra na compilação quando rodamos
 // `cargo test` — no binário final ele nem existe. `use super::*` traz tudo
 // do módulo pai (funções, structs e constantes) para o escopo dos testes.
+// docs: https://doc.rust-lang.org/reference/conditional-compilation.html#the-cfg-attribute
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +213,7 @@ mod tests {
         // $3 * 0.1 por MTok de cache read — compara com tolerância porque
         // 3.0 * 0.1 não é representável exatamente em ponto flutuante
         // (dá 0.30000000000000004), então `assert_eq!` direto quebraria.
+        // docs: https://doc.rust-lang.org/std/macro.assert_eq.html
         let diferenca = (custo.cache_leitura - 0.3).abs();
         assert!(diferenca < 1e-9, "custo {custo:?} deveria ser ~0.3");
     }

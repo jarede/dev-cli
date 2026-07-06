@@ -27,6 +27,8 @@ use crate::ai::render;
 /// comando (flags, posicionais, valores default, validação de range etc.) —
 /// não escrevemos esse parsing na mão. `Debug` só permite formatar a struct
 /// com `{:?}`, útil em prints de depuração.
+/// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+/// docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 #[derive(Args, Debug)]
 #[command(
     help_template = crate::help::ARGUMENTOS,
@@ -85,9 +87,12 @@ fn caminho_padrao_db() -> PathBuf {
     // não existir ou não for UTF-8 válido). `unwrap_or_else` com uma closure
     // só roda o fallback (`".".to_string()`) se der erro — evita alocar a
     // string default no caminho feliz.
+    // docs: https://doc.rust-lang.org/std/env/fn.var.html
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or_else
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     // `PathBuf::join` concatena componentes de caminho de forma portável
     // (insere o separador certo por sistema operacional).
+    // docs: https://doc.rust-lang.org/std/path/struct.PathBuf.html#method.join
     PathBuf::from(home).join(".local/share/opencode/opencode.db")
 }
 
@@ -102,6 +107,7 @@ fn caminho_padrao_db() -> PathBuf {
 // `{expr}` é o campo de timestamp em milissegundos (epoch) de cada
 // tabela — muda conforme a query (`message` usa `json_extract`,
 // `session` tem coluna própria).
+// docs: https://doc.rust-lang.org/std/primitive.str.html#method.starts_with
 fn filtro_periodo_sql(expr: &str) -> String {
     // `format!` com captura implícita de variável: `{expr}` dentro da string
     // é substituído pelo valor do parâmetro `expr` (funcionalidade da edition
@@ -111,6 +117,8 @@ fn filtro_periodo_sql(expr: &str) -> String {
     // de uma query maior via `format!` também. Os `?1` continuam sendo
     // placeholders do `rusqlite` — não são substituídos aqui, só quando a
     // query completa for executada com `params![periodo]`.
+    // docs: https://doc.rust-lang.org/std/macro.format.html
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/macro.params.html
     format!(
         "(?1 = '' OR
           (length(?1) = 7 AND strftime('%Y-%m', {expr} / 1000, 'unixepoch', 'localtime') = ?1) OR
@@ -136,6 +144,8 @@ fn carregar_resumo(conn: &Connection, periodo: &str) -> rusqlite::Result<Resumo>
     // `COUNT`/`SUM` sem `GROUP BY` sempre devolvem uma única linha agregada.
     // O terceiro argumento é uma closure que recebe a `Row` e monta o valor
     // de retorno; o `?` dentro dela propaga erro de tipo/coluna ausente.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.query_row
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html
     conn.query_row(
         &format!(
             "SELECT
@@ -154,6 +164,7 @@ fn carregar_resumo(conn: &Connection, periodo: &str) -> rusqlite::Result<Resumo>
         ),
         // `rusqlite::params!` monta o array de valores para os placeholders
         // `?1`, `?2`... da query; aqui só há `?1`, ligado a `periodo`.
+        // docs: https://docs.rs/rusqlite/latest/rusqlite/macro.params.html
         rusqlite::params![periodo],
         |linha| {
             Ok(Resumo {
@@ -161,6 +172,7 @@ fn carregar_resumo(conn: &Connection, periodo: &str) -> rusqlite::Result<Resumo>
                 // primeira coluna do SELECT) e tenta converter para o tipo
                 // inferido pelo campo da struct (`i64`); `?` propaga erro de
                 // conversão sem abortar o processo.
+                // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
                 tarefas: linha.get(0)?,
                 tokens_totais: linha.get(1)?,
             })
@@ -181,6 +193,10 @@ fn carregar_tokens_por_dia(
     // reutilizável — diferente de `query_row`, que prepara e já executa;
     // aqui precisamos do `Statement` à parte porque vamos iterar várias
     // linhas de resultado com `query_map` (uma por dia).
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.prepare
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.query_row
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
     let mut stmt = conn.prepare(&format!(
         "SELECT
             date({expr} / 1000, 'unixepoch', 'localtime') AS dia,
@@ -201,6 +217,7 @@ fn carregar_tokens_por_dia(
     // `query_map` devolve um iterador de `Result<T>` — cada linha pode
     // falhar independentemente (tipo errado, nulo inesperado). Isso
     // evita que uma linha malformada derrube o comando inteiro.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
     let linhas = stmt.query_map(rusqlite::params![periodo], |linha| {
         let dia_texto: String = linha.get(0)?;
         let tokens: i64 = linha.get(1)?;
@@ -212,6 +229,7 @@ fn carregar_tokens_por_dia(
         let (dia_texto, tokens) = linha?;
         // Data malformada (SQLite não valida formato) é descartada
         // silenciosamente — melhor que propagar erro e abortar.
+        // docs: https://docs.rs/chrono/latest/chrono/naive/struct.NaiveDate.html#method.parse_from_str
         if let Ok(dia) = NaiveDate::parse_from_str(&dia_texto, "%Y-%m-%d") {
             mapa.insert(dia, tokens);
         }
@@ -235,6 +253,7 @@ fn carregar_tokens_por_dia(
 fn carregar_modelos(conn: &Connection, periodo: &str) -> rusqlite::Result<Vec<render::ModeloUso>> {
     // Mesmo padrão de `carregar_tokens_por_dia`: prepara o `Statement` para
     // depois iterar várias linhas (uma por combinação modelo+provedor).
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html
     let mut stmt = conn.prepare(&format!(
         "SELECT
             json_extract(model, '$.id') AS modelo,
@@ -290,6 +309,8 @@ fn carregar_modelos(conn: &Connection, periodo: &str) -> rusqlite::Result<Vec<re
     // automático: se qualquer linha vier com erro, a coleção inteira vira
     // `Err` (a inferência de tipo do retorno da função escolhe esse `collect`
     // em vez de, por exemplo, `Vec<Result<_>>`).
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     linhas.collect()
 }
 
@@ -335,6 +356,7 @@ fn carregar_sessoes_opencode(
         // escopo atual (aqui, `continue` pula pra próxima iteração); se
         // funcionar, `dia` fica disponível como `NaiveDate` normal daqui pra
         // baixo — sem precisar de `if let` aninhado nem `.unwrap()`.
+        // docs: https://docs.rs/chrono/latest/chrono/naive/struct.NaiveDate.html#method.parse_from_str
         let Ok(dia) = NaiveDate::parse_from_str(&dia_texto, "%Y-%m-%d") else {
             continue; // data inválida — pula, não aborta
         };
@@ -342,6 +364,7 @@ fn carregar_sessoes_opencode(
         // (1 minuto) e o teto (4 horas) definidos em `render.rs`.
         // Uma sessão que ficou aberta a noite toda não deve contar
         // como 8h de trabalho contínuo.
+        // docs: https://doc.rust-lang.org/std/primitive.f64.html#method.clamp
         let duracao = ((ultimo - primeiro) as f64 / 3600.0 / 1000.0)
             .clamp(render::MINIMO_HORAS, render::TETO_HORAS);
         sessoes.push(render::Sessao {
@@ -375,6 +398,10 @@ fn agregar(conn: &Connection, periodo: &str) -> rusqlite::Result<render::DadosPr
     // logo abaixo); `filter` descarta os `-free`; `map` extrai só o que
     // interessa; `collect()` para `BTreeMap` monta o mapa a partir do
     // iterador de tuplas `(chave, valor)`.
+    // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.iter
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     let nao_free: BTreeMap<String, (f64, i64)> = modelos
         .iter()
         .filter(|m| !m.modelo.ends_with("-free"))
@@ -435,6 +462,10 @@ pub fn carregar_dados(periodo: &str) -> Result<render::DadosProvedor, Box<dyn st
         // e `Box<dyn Error>` tem `From<String>`, então `.into()` encontra
         // essa conversão. É o jeito mais simples de devolver um erro "ad hoc"
         // sem precisar declarar um tipo de erro próprio.
+        // docs: https://doc.rust-lang.org/std/macro.format.html
+        // docs: https://doc.rust-lang.org/std/boxed/struct.Box.html
+        // docs: https://doc.rust-lang.org/std/convert/trait.From.html
+        // docs: https://doc.rust-lang.org/std/convert/trait.Into.html#method.into
         return Err(format!(
             "banco do OpenCode não encontrado: '{}'",
             caminho_db.display()
@@ -443,6 +474,9 @@ pub fn carregar_dados(periodo: &str) -> Result<render::DadosProvedor, Box<dyn st
     }
     // `?` aqui converte o erro do `rusqlite` (`rusqlite::Error`) para
     // `Box<dyn Error>` automaticamente, via a mesma conversão `From`.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/enum.Error.html
+    // docs: https://doc.rust-lang.org/std/convert/trait.From.html
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.open
     let conn = Connection::open(&caminho_db)?;
     Ok(agregar(&conn, periodo)?)
 }
@@ -460,6 +494,9 @@ impl OpencodeArgs {
     // — a `String` de sucesso é o texto pronto pra imprimir (`main.rs` faz
     // isso), e `Box<dyn Error>` permite propagar, com `?`, erros de origens
     // bem diferentes (SQLite, IO, JSON) sem declarar um enum de erro próprio.
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html
+    // docs: https://doc.rust-lang.org/std/boxed/struct.Box.html
+    // docs: https://doc.rust-lang.org/std/error/trait.Error.html
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
         // ── Conexão com o banco ──────────────────────────────────────
         // Usa o caminho customizado (`--db`) ou o padrão
@@ -468,6 +505,8 @@ impl OpencodeArgs {
         // `unwrap_or_else` precisa tomar posse do valor (e `self` é só
         // emprestado). Se for `None`, chama `caminho_padrao_db` (passada por
         // nome de função, sem parênteses — vira a closure do fallback).
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap_or_else
         let caminho_db = self.db.clone().unwrap_or_else(caminho_padrao_db);
         if !caminho_db.exists() {
             return Err(format!(
@@ -514,6 +553,8 @@ impl OpencodeArgs {
             // converte a struct para JSON (o `serde` olha o nome e tipo de
             // cada campo e escreve o objeto correspondente); é por isso que
             // os nomes dos campos aqui viram exatamente as chaves do JSON.
+            // docs: https://serde.rs/derive.html
+            // docs: https://docs.rs/serde/latest/serde/trait.Serialize.html
             #[derive(serde::Serialize)]
             struct LinhaDiaTokens {
                 dia: String,
@@ -550,6 +591,9 @@ impl OpencodeArgs {
             // `.values()` itera só os valores do mapa (ignora as chaves/dias);
             // `map(|(h, _)| h)` desestrutura a tupla `(horas, sessoes)` e
             // descarta a segunda parte; `.sum()` reduz tudo a um único `f64`.
+            // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.values
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum
             let total_horas: f64 = por_dia_horas.values().map(|(h, _)| h).sum();
             let saida_json = Saida {
                 historico: self.historico,
@@ -585,6 +629,8 @@ impl OpencodeArgs {
             // que gera JSON compacto numa linha só); o `?` propaga o erro se
             // algum campo não puder ser serializado (não deveria acontecer
             // aqui, já que todos os tipos envolvidos implementam `Serialize`).
+            // docs: https://docs.rs/serde_json/latest/serde_json/fn.to_string_pretty.html
+            // docs: https://docs.rs/serde/latest/serde/trait.Serialize.html
             return Ok(serde_json::to_string_pretty(&saida_json)?);
         }
 

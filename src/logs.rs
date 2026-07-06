@@ -11,23 +11,31 @@
 use std::collections::BTreeMap;
 // `BufRead` traz o método `.lines()` para leitores bufferizados (usado no
 // modo `-f`, lendo o stdout do processo filho linha a linha).
+// docs: https://doc.rust-lang.org/std/io/trait.BufRead.html#method.lines
 use std::io::BufRead;
 // `Write` traz o método `.flush()`, usado para forçar a stdout bufferizada a
 // aparecer imediatamente no terminal (ver comentários mais abaixo).
+// docs: https://doc.rust-lang.org/std/io/trait.Write.html#method.flush
 use std::io::Write;
 use std::path::PathBuf;
 // `Duration` representa um intervalo de tempo (usado no `sleep` do modo
 // `--watch`); `SystemTime`/`UNIX_EPOCH` servem para calcular o timestamp Unix
 // (segundos desde 1970) que guardamos no banco como `collected_at`.
+// docs: https://doc.rust-lang.org/std/time/struct.Duration.html
+// docs: https://doc.rust-lang.org/std/time/struct.SystemTime.html
+// docs: https://doc.rust-lang.org/std/time/constant.UNIX_EPOCH.html
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // `Args`/`Subcommand`: macros de derive do clap que geram, a partir dos
 // campos/variantes anotados, o parser de linha de comando (flags, posicionais,
 // valores default, help text) sem precisarmos escrever isso à mão.
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 use clap::Args;
 use clap::Subcommand;
 // Trait de extensão do `owo-colors`: ao importá-la, todo tipo que implementa
 // `Display` ganha métodos como `.red()`, `.bold()`, `.dimmed()`.
+// docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html
 use owo_colors::OwoColorize;
 use rusqlite::Connection;
 
@@ -52,6 +60,9 @@ const PALAVRAS_CHAVE: [&str; 4] = ["error", "warn", "info", "debug"];
 // automaticamente a impressão `{:?}`, útil para inspecionar em depuração.
 // `#[command(help_template = ...)]` troca o texto de ajuda padrão do clap
 // pelo template compartilhado definido em `crate::help`.
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+// docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
+// docs: https://docs.rs/clap/latest/clap/_derive/index.html
 #[derive(Args, Debug)]
 #[command(help_template = crate::help::SUBCOMANDOS)]
 pub struct LogsArgs {
@@ -77,6 +88,8 @@ impl LogsArgs {
 // `#[derive(Subcommand, Debug)]`: `Subcommand` faz o clap gerar o parser que
 // decide qual variante (e portanto qual `*Args`) instanciar a partir da
 // palavra digitada pelo usuário (`stats`, `containers` ou `remote`).
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
+// docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 #[derive(Subcommand, Debug)]
 enum LogsCommands {
     /// Estatísticas de logs de containers (arquivos supervisord).
@@ -99,6 +112,7 @@ pub struct StatsArgs {
     // como `--path <valor>`; `default_value` faz o clap preencher `path`
     // automaticamente quando a flag não é passada, então o campo não precisa
     // ser `Option<PathBuf>`.
+    // docs: https://docs.rs/clap/latest/clap/_derive/index.html
     #[arg(long, default_value = "dados/logs", help_heading = crate::help::OPCOES)]
     path: PathBuf,
 }
@@ -113,6 +127,8 @@ impl StatsArgs {
         for (nome, caminho) in alvos {
             // Lê o arquivo inteiro para uma String. `map_err` troca o erro cru
             // de IO por uma mensagem clara com o caminho antes do `?` propagar.
+            // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.map_err
+            // docs: https://doc.rust-lang.org/std/fs/fn.read_to_string.html
             let conteudo = std::fs::read_to_string(&caminho)
                 .map_err(|erro| format!("não foi possível ler '{}': {erro}", caminho.display()))?;
             // NÚCLEO PURO: transforma texto em contagens.
@@ -128,11 +144,14 @@ impl StatsArgs {
     // Resolve a lista de arquivos a processar: um único container ou todos.
     fn descobrir_alvos(&self) -> Result<Vec<(String, PathBuf)>, Box<dyn std::error::Error>> {
         // `if let Some(...)` desestrutura o Option: só entra se o usuário passou container.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html
         if let Some(container) = &self.container {
             // `join` monta o caminho `<path>/<container>/supervisord.log`.
+            // docs: https://doc.rust-lang.org/std/path/struct.Path.html#method.join
             let caminho = self.path.join(container).join("supervisord.log");
             if !caminho.exists() {
                 // `.into()` converte a String para o `Box<dyn Error>` do retorno.
+                // docs: https://doc.rust-lang.org/std/convert/trait.Into.html
                 return Err(format!(
                     "arquivo de log não encontrado para o container '{container}': '{}'",
                     caminho.display()
@@ -140,10 +159,12 @@ impl StatsArgs {
                 .into());
             }
             // `vec![...]` cria um Vec com um único elemento.
+            // docs: https://doc.rust-lang.org/std/macro.vec.html
             return Ok(vec![(container.clone(), caminho)]);
         }
 
         // Sem container: listamos as entradas do diretório `--path`.
+        // docs: https://doc.rust-lang.org/std/fs/fn.read_dir.html
         let entradas = std::fs::read_dir(&self.path).map_err(|erro| {
             format!(
                 "não foi possível ler o diretório '{}': {erro}",
@@ -153,12 +174,17 @@ impl StatsArgs {
 
         let mut nomes = Vec::new();
         // `read_dir` produz um iterador de `Result<DirEntry>`: cada leitura pode falhar.
+        // docs: https://doc.rust-lang.org/std/fs/struct.DirEntry.html
         for entrada in entradas {
             let entrada = entrada?;
             // Só nos interessam subdiretórios (um por container). A "let chain"
             // com `&& let` encadeia duas condições num único `if`: só empurra o
             // nome se for diretório E o nome for UTF-8 válido (`to_str()` devolve
             // `Option<&str>`, `None` se não for).
+            // docs: https://doc.rust-lang.org/std/fs/struct.DirEntry.html#method.file_type
+            // docs: https://doc.rust-lang.org/std/fs/struct.FileType.html#method.is_dir
+            // docs: https://doc.rust-lang.org/std/fs/struct.DirEntry.html#method.file_name
+            // docs: https://doc.rust-lang.org/std/ffi/struct.OsStr.html#method.to_str
             if entrada.file_type()?.is_dir()
                 && let Some(nome) = entrada.file_name().to_str()
             {
@@ -166,10 +192,14 @@ impl StatsArgs {
             }
         }
         // A ordem do `read_dir` não é garantida; ordenamos para saída estável.
+        // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.sort
         nomes.sort();
 
         // Transforma cada nome em uma tupla (nome, caminho do log).
         // `into_iter` consome o Vec; `map` adapta cada item; `collect` remonta um Vec.
+        // docs: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html#tymethod.into_iter
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
         Ok(nomes
             .into_iter()
             .map(|nome| {
@@ -194,11 +224,13 @@ pub struct ContainersArgs {
     /// Container específico; se omitido, varre todos os detectados por `container list`.
     // `Option<String>`: o clap deixa esse argumento posicional opcional porque
     // o tipo é `Option`; sem valor na linha de comando, vira `None`.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
     #[arg(help_heading = crate::help::ARGUMENTOS_HEADING)]
     container: Option<String>,
     /// Acompanha os logs em tempo real (como `tail -f`), redesenhando o painel a cada linha nova.
     // `bool` com `#[arg(short, long)]`: o clap trata automaticamente como uma
     // flag (`-f`/`--follow`) que não recebe valor — presente = `true`.
+    // docs: https://docs.rs/clap/latest/clap/_derive/index.html
     #[arg(short = 'f', long, help_heading = crate::help::OPCOES)]
     follow: bool,
 }
@@ -249,12 +281,16 @@ pub struct RemoteArgs {
     // `default_value_t = 1000`: variante de `default_value` para tipos que já
     // implementam `Default`/`FromStr` numéricos; evita ter que escrever "1000"
     // como string e deixar o clap fazer o parse.
+    // docs: https://docs.rs/clap/latest/clap/_derive/index.html
+    // docs: https://doc.rust-lang.org/std/default/trait.Default.html
+    // docs: https://doc.rust-lang.org/std/str/trait.FromStr.html
     #[arg(long, default_value_t = 1000)]
     tail: usize,
     /// Caminho do banco SQLite para armazenamento incremental.
     // Sem `default_value`, um `#[arg(long)]` sobre `Option<T>` fica `None`
     // quando a flag não é passada — é assim que sabemos, mais abaixo, se o
     // usuário pediu persistência ou não.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
     #[arg(long)]
     db: Option<PathBuf>,
     /// Modo contínuo: coleta a cada 5 minutos (requer --db).
@@ -271,6 +307,7 @@ impl RemoteArgs {
         // bloco `else` OBRIGATORIAMENTE desvia o fluxo (aqui, com `return`)
         // antes de chegar na linha seguinte — diferente de `if let`, não há
         // como "continuar" sem um `db_path` válido depois deste ponto.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html
         let Some(db_path) = &self.db else {
             // Modo original: one-shot sem persistência
             let containers = if let Some(container) = &self.container {
@@ -294,6 +331,7 @@ impl RemoteArgs {
 
         // Modo com banco: coleta incremental + persistência
         // `Connection::open` cria o arquivo SQLite se ele não existir ainda.
+        // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.open
         let conn = Connection::open(db_path)?;
         init_db(&conn)?;
 
@@ -303,6 +341,9 @@ impl RemoteArgs {
         // (a "turbofish" `::<_, i64>` diz ao rusqlite o tipo esperado).
         // `unwrap_or(0)`: se a consulta falhar (ex.: tabela ainda sem uso),
         // tratamos como "0 linhas" em vez de propagar erro aqui.
+        // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.query_row
+        // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
+        // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or
         let db_vazio = conn
             .query_row("SELECT COUNT(*) FROM containers", [], |r| r.get::<_, i64>(0))
             .unwrap_or(0)
@@ -313,6 +354,10 @@ impl RemoteArgs {
             // "época Unix" (1970-01-01); `.as_secs()` extrai os segundos.
             // `unwrap_or_default()` cai para `Duration::ZERO` no caso (bem
             // improvável) do relógio do sistema estar antes de 1970.
+            // docs: https://doc.rust-lang.org/std/time/struct.SystemTime.html#method.duration_since
+            // docs: https://doc.rust-lang.org/std/time/struct.Duration.html#method.as_secs
+            // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or_default
+            // docs: https://doc.rust-lang.org/std/time/struct.Duration.html#associatedconstant.ZERO
             let agora = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -325,6 +370,10 @@ impl RemoteArgs {
             // `iter()` empresta cada `ContainerRemoto` (sem consumir `rodando`,
             // que ainda usamos logo abaixo); `.clone()` copia só a `String`
             // do nome para o novo `Vec`.
+            // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.iter
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+            // docs: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
             let nomes_rodando: Vec<String> = rodando.iter().map(|c| c.nome.clone()).collect();
             let alertas = verificar_status_containers(&conn, &nomes_rodando, agora)?;
             for alerta in &alertas {
@@ -337,6 +386,8 @@ impl RemoteArgs {
                 // etc. da query, escapando-os corretamente (evita SQL
                 // injection). `COALESCE(..., 0)` troca `NULL` por `0` direto
                 // no SQL, então o `.get(0)` sempre recebe um inteiro.
+                // docs: https://docs.rs/rusqlite/latest/rusqlite/macro.params.html
+                // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
                 let ultima_coleta: i64 = conn
                     .query_row(
                         "SELECT COALESCE(last_collected_at, 0) FROM containers WHERE name = ?1",
@@ -355,6 +406,10 @@ impl RemoteArgs {
                 let grupos = categorizar_por_nivel(&conteudo);
                 // Reduz cada grupo (nível -> Vec<linha>) à sua contagem
                 // (nível -> quantidade); `v.len()` é O(1) num `Vec`.
+                // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.iter
+                // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+                // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.len
+                // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
                 let niveis: BTreeMap<String, usize> =
                     grupos.iter().map(|(k, v)| (k.clone(), v.len())).collect();
 
@@ -387,9 +442,14 @@ impl RemoteArgs {
                 // `flush()` o terminal pode não mostrar nada até o processo
                 // encerrar ou o buffer encher. O `?` propaga qualquer erro de
                 // IO ao tentar escrever (raro, mas possível).
+                // docs: https://doc.rust-lang.org/std/macro.print.html
+                // docs: https://doc.rust-lang.org/std/io/trait.Write.html#tymethod.flush
+                // docs: https://doc.rust-lang.org/std/io/fn.stdout.html
                 std::io::stdout().flush()?;
                 // Bloqueia esta thread (a única do programa aqui) por 5
                 // minutos antes de seguir para a próxima instrução.
+                // docs: https://doc.rust-lang.org/std/thread/fn.sleep.html
+                // docs: https://doc.rust-lang.org/std/time/struct.Duration.html#method.from_secs
                 std::thread::sleep(Duration::from_secs(300));
             }
         }
@@ -402,6 +462,7 @@ impl RemoteArgs {
 }
 
 // Cria as tabelas do banco se não existirem.
+// docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
 fn init_db(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS containers (
@@ -442,6 +503,7 @@ fn init_db(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         // `let _ = ...` descarta o `Result` de propósito: se a coluna já
         // existir, o SQLite retorna erro e é exatamente isso que ignoramos
         // aqui (idempotência da migração), sem propagar para o `?` do retorno.
+        // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute
         let _ = conn.execute(sql, []);
     }
 
@@ -458,13 +520,18 @@ fn armazenar_contagens(
     // `prepare` compila o SQL uma única vez; `stmt.execute` é chamado depois
     // dentro do loop, reaproveitando a mesma statement preparada (mais
     // eficiente do que preparar um SQL novo a cada nível).
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.prepare
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.execute
     let mut stmt =
         conn.prepare("INSERT INTO log_counts (container_name, level, count, collected_at) VALUES (?1, ?2, ?3, ?4)")?;
     // `for (nivel, &quantidade) in niveis`: itera pelas entradas do
     // `BTreeMap` desestruturando a tupla `(&String, &usize)`; o padrão
     // `&quantidade` copia o `usize` para fora da referência (tipo `Copy`).
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+    // docs: https://doc.rust-lang.org/std/marker/trait.Copy.html
     for (nivel, &quantidade) in niveis {
         if quantidade > 0 {
+            // docs: https://docs.rs/rusqlite/latest/rusqlite/macro.params.html
             stmt.execute(rusqlite::params![nome, nivel, quantidade as i64, agora])?;
         }
     }
@@ -485,6 +552,9 @@ fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
             // insere um `Vec` vazio (o `Default` de `Vec<String>`); em
             // seguida `.push(limpa)` empilha a linha nesse `Vec`, seja ele
             // recém-criado ou já existente.
+            // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+            // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_default
+            // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.push
             grupos
                 .entry(nivel.to_uppercase())
                 .or_default()
@@ -536,6 +606,10 @@ fn verificar_status_containers(
     // (uma linha pode falhar ao ser convertida). `filter_map(|r| r.ok())`
     // descarta silenciosamente qualquer linha com erro e mantém só os `Ok`,
     // convertendo cada `Result` em `Option` e já "achatando" o iterador.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter_map
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.ok
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     let conhecidos: Vec<String> = stmt
         .query_map([], |row| row.get(0))?
         .filter_map(|r| r.ok())
@@ -560,6 +634,7 @@ fn verificar_status_containers(
         // `.ok()` converte o `Result<String, _>` em `Option<String>`,
         // tratando "não achei essa linha" e "erro de SQL" da mesma forma:
         // simplesmente `None` (sem status anterior conhecido).
+        // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.ok
         let status_anterior: Option<String> = conn
             .query_row(
                 "SELECT status FROM containers WHERE name = ?1",
@@ -574,6 +649,7 @@ fn verificar_status_containers(
         // `collapsible_if`). `.as_ref()` empresta o `String` de dentro do
         // `Option` em vez de movê-lo, porque ainda usamos `status_anterior`
         // implicitamente via `status` logo abaixo.
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.as_ref
         if let Some(status) = status_anterior.as_ref() && status == "stopped" {
             conn.execute(
                 "INSERT INTO alerts (container_name, alert_type, message, created_at) VALUES (?1, 'restarted', ?2, ?3)",
@@ -601,6 +677,8 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
     // O closure de `query_map` roda por linha e pode falhar em cada `row.get`
     // (tipo errado, coluna ausente); por isso ele próprio devolve `Result`,
     // e usamos `?` dentro dele para propagar esse erro por linha.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
     let linhas = stmt.query_map([], |row| {
         let nome: String = row.get(0)?;
         let nivel: String = row.get(1)?;
@@ -615,6 +693,9 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
         let (nome, nivel, total) = linha?;
         // API `entry`: garante um `BTreeMap` vazio para containers novos
         // antes de inserir o par nível/total.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+        // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_default
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.insert
         dados.entry(nome).or_default().insert(nivel, total);
     }
 
@@ -625,6 +706,9 @@ fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::
     // funciona porque `Result` também implementa `IntoIterator` (0 ou 1
     // item): `Ok(x)` vira um iterador de 1 elemento, `Err(_)` vira vazio —
     // é uma forma mais curta de "ignore os erros e siga com os `Ok`".
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.flatten
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html
+    // docs: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html
     for row in stmt2.query_map([], |r| {
         let n: String = r.get(0)?;
         let s: String = r.get(1)?;
@@ -736,6 +820,7 @@ fn obter_logs_remoto(
 fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // `mpsc` = multi-producer, single-consumer: uma thread por container
     // (produtoras) alimentam um único receptor aqui na thread principal.
+    // docs: https://doc.rust-lang.org/std/sync/mpsc/fn.channel.html
     let (tx, rx) = std::sync::mpsc::channel::<(String, String)>();
 
     for nome in nomes {
@@ -748,6 +833,9 @@ fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>>
         // `take()` retira o stdout de dentro do `Child` (deixando `None` no
         // lugar) para podermos movê-lo para a thread de leitura junto com o
         // resto do `child` (que precisamos manter vivo até o processo acabar).
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.take
+        // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or
+        // docs: https://doc.rust-lang.org/std/process/struct.Child.html#structfield.stdout
         let stdout = child
             .stdout
             .take()
@@ -760,45 +848,57 @@ fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>>
             // `lines()` bloqueia entre chamadas até a próxima linha chegar —
             // é isso que dá o efeito de "tempo real"; `map_while(Result::ok)`
             // ignora erros de leitura e para no primeiro (ex.: pipe fechado).
+            // docs: https://doc.rust-lang.org/std/io/trait.BufRead.html#method.lines
+            // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map_while
             for linha in leitor.lines().map_while(Result::ok) {
                 // Erro de `send` só ocorre se a thread principal já saiu;
                 // ignoramos porque não há mais ninguém para avisar.
+                // docs: https://doc.rust-lang.org/std/sync/mpsc/struct.Sender.html#method.send
                 let _ = tx.send((nome_da_thread.clone(), linha));
             }
             // Espera o processo `container logs -f` encerrar de fato (evita
             // deixá-lo como zumbi quando o container para).
+            // docs: https://doc.rust-lang.org/std/process/struct.Child.html#method.wait
             let _ = child.wait();
         });
     }
     // Descarta nosso clone original do transmissor: o canal só fecha (e o
     // `for` abaixo termina) quando TODAS as threads soltarem o `tx` delas.
+    // docs: https://doc.rust-lang.org/std/mem/fn.drop.html
     drop(tx);
 
     // Contagem acumulada por container, viva só na thread principal (não
     // precisa de `Mutex`: nenhuma outra thread toca nela, só recebem por canal).
     // `collect()` monta o `BTreeMap` a partir de um iterador de tuplas
     // `(chave, valor)` — cada container começa com um mapa de níveis vazio.
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect
     let mut totais: BTreeMap<String, BTreeMap<String, usize>> =
         nomes.iter().map(|nome| (nome.clone(), BTreeMap::new())).collect();
 
     // `Receiver` (o `rx`) implementa `Iterator`: o `for` bloqueia esperando a
     // próxima mensagem e só termina quando todos os `tx` (um por thread) forem
     // descartados, ou seja, quando todas as threads produtoras acabarem.
+    // docs: https://doc.rust-lang.org/std/sync/mpsc/struct.Receiver.html
     for (nome, linha) in rx {
         let niveis_da_linha = contar_niveis_container(&linha);
         // `entry(nome).or_default()`: garante um `BTreeMap<String, usize>`
         // vazio para containers que ainda não apareceram no canal, antes de
         // somar os níveis desta linha nele.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+        // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_default
         let acumulado = totais.entry(nome).or_default();
         for (nivel, quantidade) in niveis_da_linha {
             // Mesmo idiom de `entry(...).or_insert(0) +=` usado em `contar` e
             // `contar_niveis_container`: soma `quantidade` ao total daquele
             // nível, partindo de `0` se for a primeira ocorrência.
+            // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+            // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_insert
             *acumulado.entry(nivel).or_insert(0) += quantidade;
         }
 
         // Redesenha o painel inteiro a cada linha nova: limpa a tela e move o
         // cursor para o topo (códigos ANSI), como um dashboard ao vivo.
+        // docs: https://doc.rust-lang.org/std/macro.print.html
         print!("\x1b[2J\x1b[H");
         for nome in nomes {
             if let Some(niveis) = totais.get(nome) {
@@ -807,6 +907,7 @@ fn seguir_containers(nomes: &[String]) -> Result<(), Box<dyn std::error::Error>>
         }
         // `print!` só escreve no buffer da stdout; sem `flush` o painel não
         // apareceria até o buffer encher.
+        // docs: https://doc.rust-lang.org/std/io/trait.Write.html#tymethod.flush
         std::io::stdout().flush()?;
     }
 

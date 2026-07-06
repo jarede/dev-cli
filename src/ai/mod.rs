@@ -6,6 +6,8 @@
 // equivalente a um arquivo `src/ai.rs` que também declarasse `mod cambio;`
 // etc., mas usando `mod.rs` como o "arquivo principal" da pasta. É esse
 // arquivo que `main.rs` enxerga quando escreve `mod ai;`.
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 use clap::Args;
 use clap::Subcommand;
 
@@ -31,12 +33,14 @@ pub mod stats;
 // próprios. `#[command(help_template = ...)]` usa o mesmo template
 // compartilhado de `crate::help` para manter o `--help` consistente entre
 // `dev-cli ai --help`, `dev-cli logs --help` etc.
+// docs: https://docs.rs/clap/latest/clap/_derive/index.html
 #[derive(Args, Debug)]
 #[command(help_template = crate::help::SUBCOMANDOS)]
 pub struct AiArgs {
     // `#[command(subcommand)]`: delega ao clap decidir qual variante de
     // `AiCommands` construir a partir da próxima palavra digitada (hoje, só
     // `stats`).
+    // docs: https://docs.rs/clap/latest/clap/_derive/index.html
     #[command(subcommand)]
     comando: AiCommands,
 }
@@ -55,6 +59,7 @@ impl AiArgs {
 // `enum` sem `pub`: só é usado dentro deste módulo (por `AiArgs`), então não
 // precisa ser visível para o resto do crate — diferente de `Commands`, em
 // `cli.rs`, que é `pub` porque `main.rs` acessa `cli.command` de fora.
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 #[derive(Subcommand, Debug)]
 enum AiCommands {
     /// Estatísticas de uso de ferramentas de IA.

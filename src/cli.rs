@@ -5,12 +5,15 @@
 // raiz (`Cli`, lá embaixo), ela gera o `fn parse()` que lê
 // `std::env::args()` e devolve a struct já preenchida (ou imprime erro/help
 // e encerra o processo, como comentado em `main.rs`).
+// docs: https://docs.rs/clap/latest/clap/trait.Parser.html
 use clap::Parser;
 
 // `Args` é o derive para "um grupo de argumentos" (usado em structs, aqui em
 // `VersionArgs`); `Subcommand` é o derive para "um menu de escolhas" (usado
 // em enums, aqui em `Commands`). Um `#[command(subcommand)]` sempre aponta
 // para um tipo que implementa `Subcommand`.
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 use clap::Args;
 use clap::Subcommand;
 
@@ -22,6 +25,7 @@ use crate::logs::LogsArgs;
 // espera nenhum argumento extra depois de `version` — a struct existe só
 // para caber no padrão "toda variante de `Commands` carrega um `*Args` com
 // `execute()`", mesmo quando não há nada para o usuário configurar.
+// docs: https://docs.rs/clap/latest/clap/_derive/index.html
 #[derive(Args, Debug)]
 pub struct VersionArgs;
 
@@ -33,6 +37,7 @@ impl VersionArgs {
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
         // `env!` lê uma variável em tempo de COMPILAÇÃO; `CARGO_PKG_VERSION`
         // vem do `version` do Cargo.toml. Nunca falha em runtime.
+        // docs: https://doc.rust-lang.org/std/macro.env.html
         Ok(format!("dev-cli {}", env!("CARGO_PKG_VERSION")))
     }
 }
@@ -43,6 +48,7 @@ impl VersionArgs {
 // variante (em minúsculo/kebab-case) como a palavra digitada na linha de
 // comando — por isso `dev-cli version`, `dev-cli logs ...`, `dev-cli ai ...`.
 // O `///` de cada variante vira o texto de ajuda daquele subcomando.
+// docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Exibe a versão do dev-cli.
@@ -79,6 +85,8 @@ impl Commands {
 // pelo template compartilhado em `crate::help` (ver `src/help.rs`), para que
 // `dev-cli --help` também saia em português e no mesmo formato dos demais
 // subcomandos.
+// docs: https://docs.rs/clap/latest/clap/trait.Parser.html
+// docs: https://docs.rs/clap/latest/clap/_derive/index.html
 #[derive(Parser, Debug)]
 #[command(help_template = crate::help::SUBCOMANDOS)]
 pub struct Cli {
@@ -86,6 +94,7 @@ pub struct Cli {
     // `#[command(subcommand)]`: diz ao clap que este campo não é uma flag
     // comum, e sim "o restante da linha de comando decide qual variante do
     // enum `Commands` preencher aqui".
+    // docs: https://docs.rs/clap/latest/clap/_derive/index.html
     #[command(subcommand)]
     pub command: Commands,
 }

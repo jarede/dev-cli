@@ -18,6 +18,9 @@
 // Cada `#[command(help_template = crate::help::X)]` no restante do projeto
 // aponta para uma destas constantes, evitando repetir o mesmo texto de
 // template (e o mesmo erro de digitação) em cada arquivo.
+// docs: https://doc.rust-lang.org/std/primitive.str.html
+// docs: https://doc.rust-lang.org/std/string/struct.String.html
+// docs: https://docs.rs/clap/latest/clap/_derive/index.html
 pub const SUBCOMANDOS: &str = "{about}\nUso: {usage}\n\nComandos:\n{subcommands}";
 pub const ARGUMENTOS: &str = "{about}\nUso: {usage}\n\n{all-args}";
 
@@ -25,6 +28,7 @@ pub const ARGUMENTOS: &str = "{about}\nUso: {usage}\n\n{all-args}";
 // `#[arg(help_heading = ...)]`/`#[command(next_help_heading = ...)]` para
 // agrupar, no `--help`, os argumentos posicionais sob "Argumentos" e as
 // flags sob "Opções" (em vez do "Arguments"/"Options" padrão do clap).
+// docs: https://docs.rs/clap/latest/clap/_derive/index.html
 pub const OPCOES: &str = "Opções";
 pub const ARGUMENTOS_HEADING: &str = "Argumentos";
 

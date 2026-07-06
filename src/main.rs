@@ -15,6 +15,7 @@ mod tui;
 // diretamente aqui, mas o `derive(Parser)` em `cli.rs` gera uma
 // implementação da trait para `Cli`, e `Cli::parse()` (chamado abaixo) só
 // está disponível para nós porque a trait está "à vista" (in scope).
+// docs: https://docs.rs/clap/latest/clap/trait.Parser.html
 use clap::Parser;
 use cli::Cli;
 
@@ -22,6 +23,7 @@ use cli::Cli;
 // `Result` (diferente das funções `execute()` do resto do projeto): erros
 // daqui em diante são tratados "na mão", terminando o processo explicitamente
 // com `std::process::exit`, em vez de propagados com `?` para um chamador.
+// docs: https://doc.rust-lang.org/std/process/fn.exit.html
 fn main() {
     // Lê os argumentos da linha de comando (a partir de `std::env::args`) e
     // preenche a struct `Cli` conforme as anotações do clap; em erro de
@@ -29,12 +31,14 @@ fn main() {
     // imprime a mensagem apropriada e encerra o processo por conta própria
     // (chamando `exit` internamente) — por isso `Cli::parse()` não devolve
     // `Result`: se chegou a devolver algo, é porque deu certo.
+    // docs: https://docs.rs/clap/latest/clap/trait.Parser.html
     let cli = Cli::parse();
     // Executa o subcomando escolhido e trata o `Result` com `match`: como
     // `Result<T, E>` é um enum com duas variantes (`Ok`/`Err`), o `match`
     // exaustivo obriga a tratar as duas — não dá para "esquecer" o caminho
     // de erro como aconteceria com uma exceção não capturada em outras
     // linguagens.
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html
     match cli.command.execute() {
         // Sucesso: imprime o texto em stdout. `output` já é a `String`
         // pronta que cada `execute()` monta; aqui só formatamos e mostramos.
@@ -44,6 +48,8 @@ fn main() {
         // erro (mensagem amigável para o usuário); trocar para `{error:?}`
         // (Debug) mostraria mais detalhes internos, útil ao depurar, mas
         // menos legível para quem só quer saber "o que deu errado".
+        // docs: https://doc.rust-lang.org/std/fmt/trait.Display.html
+        // docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
         Err(error) => {
             eprintln!("{error}");
             // `std::process::exit` encerra o processo imediatamente com o
@@ -52,6 +58,7 @@ fn main() {
             // não há nenhum recurso importante para limpar antes de sair
             // (arquivos, conexões etc. já foram fechados dentro do
             // `execute()` que falhou), isso é seguro.
+            // docs: https://doc.rust-lang.org/std/process/fn.exit.html
             std::process::exit(1)
         }
     }

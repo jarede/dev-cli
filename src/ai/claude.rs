@@ -9,6 +9,9 @@
 // tabela de modelos, que saem sempre na mesma ordem); `HashMap` não ordena,
 // mas é mais rápido — usado só como acumulador temporário (sessão -> horários)
 // que depois vira `Vec` e é ordenado antes de retornar.
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+// docs: https://doc.rust-lang.org/std/collections/struct.HashMap.html
+// docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
@@ -16,15 +19,21 @@ use std::path::PathBuf;
 // `NaiveDate` é só a data (ano/mês/dia), sem hora nem fuso — usada como chave
 // do heatmap, já que ali só importa o dia. `Local` dá acesso ao fuso horário
 // da máquina, usado para agrupar por "dia local" em vez de UTC.
+// docs: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
+// docs: https://docs.rs/chrono/latest/chrono/naive/struct.NaiveDate.html
+// docs: https://docs.rs/chrono/latest/chrono/offset/struct.Local.html
 use chrono::{DateTime, Local, NaiveDate, Utc};
 // `Args`: macro de derive do clap que transforma a struct anotada em um
 // grupo de argumentos de linha de comando (flags, posicional, defaults).
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
 use clap::Args;
 // `Deserialize`: macro de derive do serde que gera o código para converter
 // JSON (ou outro formato) diretamente nos campos da struct, sem parsing manual.
+// docs: https://docs.rs/serde/latest/serde/trait.Deserialize.html
 use serde::Deserialize;
 // `WalkDir`: itera recursivamente sobre um diretório e suas subpastas,
 // devolvendo um iterador de entradas — poupa escrever a recursão à mão.
+// docs: https://docs.rs/walkdir/latest/walkdir/struct.WalkDir.html
 use walkdir::WalkDir;
 
 use crate::ai::render;
@@ -35,6 +44,8 @@ use crate::ai::render;
 // inteira com `{:?}` (útil ao depurar quais flags foram recebidas).
 // `#[command(help_template = ...)]`: troca o texto de ajuda padrão do clap
 // pelo template compartilhado do módulo `crate::help`.
+// docs: https://docs.rs/clap/latest/clap/trait.Args.html
+// docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 #[derive(Args, Debug)]
 #[command(help_template = crate::help::ARGUMENTOS, next_help_heading = crate::help::OPCOES)]
 pub struct ClaudeArgs {
@@ -72,6 +83,9 @@ pub struct ClaudeArgs {
 // `#[derive(Debug, Deserialize)]`: `Debug` permite imprimir a struct com
 // `{:?}`; `Deserialize` é o que o `serde_json::from_str` usa para preencher
 // os campos a partir do JSON de cada linha do `.jsonl`.
+// docs: https://docs.rs/serde/latest/serde/trait.Deserialize.html
+// docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
+// docs: https://docs.rs/serde_json/latest/serde_json/fn.from_str.html
 #[derive(Debug, Deserialize)]
 struct Uso {
     // Tokens de entrada e saída "normais" (fora de cache).
@@ -79,6 +93,7 @@ struct Uso {
     output_tokens: i64,
     // `#[serde(default)]`: se o campo não vier no JSON, assume 0 em vez
     // de falhar a desserialização.
+    // docs: https://serde.rs/field-attrs.html#default
     #[serde(default)]
     cache_creation_input_tokens: i64,
     #[serde(default)]
@@ -90,9 +105,11 @@ struct Mensagem {
     // `Option<String>`: nem toda mensagem do JSONL tem `model` (ex.:
     // mensagens de usuário não têm) — `None` cobre esse caso sem precisar de
     // um valor sentinela como string vazia.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
     model: Option<String>,
     // Idem: só mensagens de assistente com uso de tokens têm `usage`
     // preenchido; as demais desserializam como `None`.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
     usage: Option<Uso>,
 }
 
@@ -101,14 +118,18 @@ struct Registro {
     // Timestamp como `String` crua (RFC 3339); o parsing para `DateTime`
     // acontece depois, em `carregar_sessoes`, só quando o registro passa
     // pelo filtro de mês (evita parsear datas que serão descartadas).
+    // docs: https://doc.rust-lang.org/std/string/struct.String.html
+    // docs: https://docs.rs/chrono/latest/chrono/struct.DateTime.html
     timestamp: String,
     // O JSON usa `sessionId` (camelCase), mas Rust prefere
     // `session_id` (snake_case). `rename` faz a ponte.
+    // docs: https://serde.rs/field-attrs.html#rename
     #[serde(rename = "sessionId")]
     session_id: Option<String>,
     // `Option`: nem toda linha do JSONL é uma mensagem (há também linhas de
     // metadados de sessão, resumo, etc.) — essas desserializam com `None`
     // aqui e são ignoradas mais adiante.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html
     message: Option<Mensagem>,
 }
 
@@ -135,6 +156,11 @@ fn diretorio_projetos() -> PathBuf {
     // variável não existir. `unwrap_or_else` cai para "." (diretório atual)
     // nesse caso, em vez de entrar em pânico — mantendo a função livre de
     // `unwrap()` conforme convenção do projeto.
+    // docs: https://doc.rust-lang.org/std/env/fn.var.html
+    // docs: https://doc.rust-lang.org/std/env/enum.VarError.html
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or_else
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".claude/projects")
 }
@@ -153,6 +179,10 @@ fn diretorio_projetos() -> PathBuf {
 // O `WalkDir` itera recursivamente sem precisarmos escrever a recursão
 // manual do `read_dir`. Aquivos ilegíveis ou linhas malformadas são
 // puladas silenciosamente (robustez sobre correção).
+// docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
+// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+// docs: https://docs.rs/walkdir/latest/walkdir/struct.WalkDir.html
+// docs: https://doc.rust-lang.org/std/fs/fn.read_dir.html
 pub fn carregar_sessoes(
     mes: &str,
 ) -> (
@@ -165,11 +195,16 @@ pub fn carregar_sessoes(
     // suficiente aqui (não precisamos da ordenação que `BTreeMap` daria)
     // porque este mapa nunca é iterado em ordem — só convertido em
     // `Vec<render::Sessao>` no fim, via `into_values()`.
+    // docs: https://doc.rust-lang.org/std/collections/struct.HashMap.html
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+    // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
+    // docs: https://doc.rust-lang.org/std/collections/struct.HashMap.html#method.into_values
     let mut horarios_por_sessao: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
     let mut usos: Vec<UsoSessao> = Vec::new();
     let mut tokens_por_dia: BTreeMap<NaiveDate, i64> = BTreeMap::new();
 
     // WalkDir itera todas as subpastas, filtrando só arquivos .jsonl.
+    // docs: https://docs.rs/walkdir/latest/walkdir/struct.WalkDir.html
     let arquivos = WalkDir::new(diretorio_projetos())
         .into_iter()
         .filter_map(Result::ok)
@@ -193,6 +228,7 @@ pub fn carregar_sessoes(
             // todo o histórico). Senão, o timestamp RFC 3339 começa com
             // "2026-06" se for de junho de 2026. String::starts_with é
             // mais rápido que parsear a data inteira só pra comparar mês.
+            // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.starts_with
             if !mes.is_empty() && !registro.timestamp.starts_with(mes) {
                 continue;
             }
@@ -246,6 +282,7 @@ pub fn carregar_sessoes(
     // Converte o mapa sessão→horários em `Vec<render::Sessao>`.
     // Cada sessão ganha uma duração calculada pela função
     // `render::duracao_sessao` (que clamp entre 1min e 4h).
+    // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html
     let sessoes = horarios_por_sessao
         .into_values()
         .filter_map(|mut horarios| {
@@ -271,6 +308,8 @@ pub fn carregar_dados(periodo: &str) -> render::DadosProvedor {
     // `BTreeSet`: como um `BTreeMap` mas só guarda as chaves (sem valor
     // associado) e não permite duplicatas — perfeito para "quais nomes de
     // modelo eu já vi sem preço cadastrado", onde só a presença importa.
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeSet.html
+    // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
     let mut modelos_sem_preco: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
     let mut por_modelo: BTreeMap<String, render::ModeloUso> = BTreeMap::new();
@@ -288,6 +327,8 @@ pub fn carregar_dados(periodo: &str) -> render::DadosProvedor {
         // `render::ModeloUso` literal abaixo é inserido com contadores
         // zerados; nas próximas iterações, `entry` só devolve o valor já
         // existente para acumularmos nele.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+        // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_insert
         let entry = por_modelo
             .entry(uso.modelo.clone())
             .or_insert(render::ModeloUso {
@@ -345,6 +386,7 @@ impl ClaudeArgs {
         // tudo"); um período explícito (`self.periodo`) é clonado e usado
         // como veio; sem nenhum dos dois, cai no mês atual formatado como
         // "YYYY-MM" (`Local::now()` pega a data local, não UTC).
+        // docs: https://docs.rs/chrono/latest/chrono/offset/struct.Local.html#method.now
         let periodo = if self.historico {
             String::new()
         } else {
@@ -362,6 +404,9 @@ impl ClaudeArgs {
         // `.values()` itera só os valores do mapa (descarta as chaves/dias);
         // cada valor é a tupla `(horas, sessoes)` — `map` extrai só `horas`
         // e `sum()` soma tudo num único `f64`.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.values
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum
         let total_horas: f64 = por_dia.values().map(|(h, _)| h).sum();
         let subtitulo = if self.historico {
             format!(
@@ -379,6 +424,8 @@ impl ClaudeArgs {
             // não são usadas em mais nenhum lugar do módulo. `Serialize` (do
             // serde) é o inverso de `Deserialize`: converte a struct em texto
             // JSON em vez de ler JSON para dentro dela.
+            // docs: https://docs.rs/serde/latest/serde/trait.Serialize.html
+            // docs: https://docs.rs/serde/latest/serde/trait.Deserialize.html
             #[derive(serde::Serialize)]
             struct LinhaDia {
                 dia: String,
@@ -409,6 +456,8 @@ impl ClaudeArgs {
                 // `BTreeMap` sem consumi-lo; `*horas`/`*sessoes` desreferenciam
                 // os valores emprestados para copiá-los (são tipos `Copy`)
                 // para dentro da struct de saída.
+                // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.iter
+                // docs: https://doc.rust-lang.org/std/marker/trait.Copy.html
                 dias: por_dia
                     .iter()
                     .map(|(dia, (horas, sessoes))| LinhaDia {
@@ -431,6 +480,8 @@ impl ClaudeArgs {
             };
             // `?` propaga o erro de serialização (praticamente nunca ocorre
             // aqui, mas o tipo de retorno de `to_string_pretty` é `Result`).
+            // docs: https://docs.rs/serde_json/latest/serde_json/fn.to_string_pretty.html
+            // docs: https://doc.rust-lang.org/std/result/enum.Result.html
             return Ok(serde_json::to_string_pretty(&saida_json)?);
         }
 

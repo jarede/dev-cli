@@ -164,29 +164,41 @@ impl Screen for LinesScreen {
 
 /// Carrega TODAS as linhas de log de um container (sem filtrar por nível),
 /// na ordem em que foram inseridas. Usado pela detecção de app types.
+///
+/// Devolve `Vec` "vazio silencioso" em caso de erro de SQL em vez de
+/// propagar um `Result`: esta função é chamada de dentro de
+/// `Screen::handle_key` (ver `dashboard.rs`), cuja assinatura de trait
+/// devolve `ScreenAction`, não `Result` — mudar isso propagaria por toda a
+/// árvore de telas. Como o SQL é fixo e o schema é garantido por
+/// `init_db`, o erro esperado aqui é só "banco fechado/corrompido", que a UI
+/// prefere degradar como "sem linhas" a entrar em pânico (mesmo padrão de
+/// `filter_map(|r| r.ok())` usado em `nucleo::db`).
 pub(crate) fn carregar_todas_linhas(conn: &Connection, container: &str) -> Vec<String> {
-    let mut stmt = conn
-        .prepare("SELECT line FROM log_lines WHERE container_name = ?1 ORDER BY id")
-        .unwrap();
-    stmt.query_map(rusqlite::params![container], |r| r.get(0))
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+    let Ok(mut stmt) =
+        conn.prepare("SELECT line FROM log_lines WHERE container_name = ?1 ORDER BY id")
+    else {
+        return Vec::new();
+    };
+    let Ok(linhas) = stmt.query_map(rusqlite::params![container], |r| r.get(0)) else {
+        return Vec::new();
+    };
+    linhas.filter_map(|r| r.ok()).collect()
 }
 
 /// Carrega linhas de log do banco para um container e nível específicos.
+/// Mesma justificativa de `carregar_todas_linhas` para não usar `unwrap()`.
 pub(crate) fn carregar_linhas(conn: &Connection, container: &str, nivel: &str) -> Vec<String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT line FROM log_lines
-             WHERE container_name = ?1 AND level = ?2
-             ORDER BY id",
-        )
-        .unwrap();
-    stmt.query_map(rusqlite::params![container, nivel], |r| r.get(0))
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT line FROM log_lines
+         WHERE container_name = ?1 AND level = ?2
+         ORDER BY id",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(linhas) = stmt.query_map(rusqlite::params![container, nivel], |r| r.get(0)) else {
+        return Vec::new();
+    };
+    linhas.filter_map(|r| r.ok()).collect()
 }
 
 /// Corta a string em `max` bytes e acrescenta "…" para indicar que há mais

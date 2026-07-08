@@ -28,6 +28,9 @@ use serde::Deserialize;
 /// [limiares]
 /// p95_lento_seg = 1.0
 /// taxa_erro_pct = 5.0
+///
+/// [servidor]
+/// bind = "127.0.0.1:8787"
 /// ```
 // `#[serde(default)]`: se uma seção/campo faltar no TOML, usa o `Default`
 // correspondente em vez de falhar — permite arquivos parciais.
@@ -37,6 +40,7 @@ use serde::Deserialize;
 pub struct Config {
     pub coleta: Coleta,
     pub limiares: Limiares,
+    pub servidor: Servidor,
 }
 
 /// Parâmetros da coleta de logs.
@@ -89,6 +93,27 @@ impl Default for Limiares {
         Self {
             p95_lento_seg: 1.0,
             taxa_erro_pct: 5.0,
+        }
+    }
+}
+
+/// Configuração do servidor HTTP (`crates/servidor`, Fase 2).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Servidor {
+    /// Endereço de escuta da API ("host:porta"). Localhost por padrão:
+    /// expor para a rede deve ser uma decisão EXPLÍCITA do operador
+    /// (mudar para "0.0.0.0:8787" na config ou usar um proxy reverso).
+    pub bind: String,
+}
+
+// Mesmo motivo do `Default` manual de `Coleta`: o default do projeto não é
+// o "zero value" (String vazia) do derive.
+// docs: https://doc.rust-lang.org/std/default/trait.Default.html
+impl Default for Servidor {
+    fn default() -> Self {
+        Self {
+            bind: "127.0.0.1:8787".to_string(),
         }
     }
 }
@@ -148,6 +173,7 @@ impl Config {
                         self.limiares.taxa_erro_pct = n;
                     }
                 }
+                "DEV_CLI_SERVIDOR_BIND" => self.servidor.bind = valor,
                 _ => {}
             }
         }
@@ -299,5 +325,28 @@ taxa_erro_pct = 1.0
         let caminho = c.caminho_db();
         assert!(caminho.ends_with("x/logs.db"));
         assert!(!caminho.to_string_lossy().contains('~'));
+    }
+
+    #[test]
+    fn servidor_default_e_localhost() {
+        assert_eq!(Config::default().servidor.bind, "127.0.0.1:8787");
+    }
+
+    #[test]
+    fn toml_configura_bind_do_servidor() {
+        let c = Config::de_toml("[servidor]\nbind = \"0.0.0.0:9000\"\n").unwrap();
+        assert_eq!(c.servidor.bind, "0.0.0.0:9000");
+        // O resto continua nos defaults.
+        assert_eq!(c.coleta.intervalo_seg, 60);
+    }
+
+    #[test]
+    fn env_sobrepoe_bind_do_servidor() {
+        let mut c = Config::default();
+        c.aplicar_env(vec![(
+            "DEV_CLI_SERVIDOR_BIND".to_string(),
+            "0.0.0.0:1234".to_string(),
+        )]);
+        assert_eq!(c.servidor.bind, "0.0.0.0:1234");
     }
 }

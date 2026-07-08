@@ -74,6 +74,7 @@ cargo install --git https://github.com/jarede/dev-cli
 |---|---|
 | `dev-cli version` | Imprime a versão do `Cargo.toml`. |
 | `dev-cli logs stats [container]` | Estatísticas coloridas dos logs por container. Sem argumento, varre todos em `--path` (default `dados/logs`). |
+| `dev-cli logs dashboard [--ssh user@host]` | Dashboard TUI ao vivo: containers ranqueados por severidade, com coleta contínua em thread (docker local ou via SSH). |
 | `dev-cli ai stats opencode [YYYY-MM\|YYYY-MM-DD]` | Dashboard de tokens/custo do OpenCode: heatmap de atividade, streaks, tabela de modelos com barras coloridas, custo em US$/R$ (câmbio ao vivo). Lê o SQLite local do app. |
 | `dev-cli ai stats claude [YYYY-MM\|YYYY-MM-DD]` | Horas trabalhadas com o Claude Code por semana/dia/top-N, mais custo estimado por modelo em US$/R$. Lê os transcritos JSONL locais. |
 
@@ -83,12 +84,13 @@ Ambos os subcomandos de `ai stats` aceitam `--json` (saída estruturada em vez d
 
 ```bash
 cargo build
-cargo run -- version
-cargo run -- logs stats               # todos os containers
-cargo run -- logs stats prezzo        # um container
-cargo run -- ai stats opencode        # dashboard de tokens/custo do OpenCode
-cargo run -- ai stats claude          # horas + custo do mês atual
-cargo run -- ai stats claude 2026-06  # horas + custo de um mês específico
+cargo run -p dev-cli -- version
+cargo run -p dev-cli -- logs stats               # todos os containers
+cargo run -p dev-cli -- logs stats prezzo        # um container
+cargo run -p dev-cli -- logs dashboard           # dashboard TUI ao vivo (docker local)
+cargo run -p dev-cli -- ai stats opencode        # dashboard de tokens/custo do OpenCode
+cargo run -p dev-cli -- ai stats claude          # horas + custo do mês atual
+cargo run -p dev-cli -- ai stats claude 2026-06  # horas + custo de um mês específico
 cargo build --release
 ./target/release/dev-cli --help
 ```
@@ -96,38 +98,54 @@ cargo build --release
 ## 🧪 Testes
 
 ```bash
-cargo test
+cargo test --workspace
 ```
 
-28 testes unitários, cobrindo o núcleo puro de cada subcomando (sem tocar
-banco/disco/rede): `src/logs.rs`, `src/ai/render.rs`, `src/ai/precos.rs` e
-`src/ai/cambio.rs`.
+Testes unitários cobrindo o núcleo puro de cada subcomando (sem tocar
+banco/disco/rede), em `crates/nucleo` (`core.rs`, `metricas.rs`, `config.rs`,
+`executor.rs`, `db.rs` — este com SQLite em memória) e em `crates/cli`
+(`ai/render.rs`, `ai/precos.rs`, `ai/cambio.rs`, `logs/core.rs`).
 
 ## 📁 Estrutura
 
+Workspace com dois crates:
+
 ```
-src/
-├── main.rs         # entry point: parse do Cli e despacho
-├── cli.rs          # struct Cli + enum Commands + VersionArgs
-├── logs.rs         # subcomando logs: núcleo puro de contagem + IO + render colorido
-└── ai/             # subcomando ai stats
-    ├── mod.rs      # AiArgs, dispatch
-    ├── stats.rs    # StatsArgs, dispatch por provedor (opencode | claude)
-    ├── opencode.rs # IO: lê o SQLite do OpenCode via rusqlite
-    ├── claude.rs   # IO: lê os transcritos JSONL via walkdir + serde_json
-    ├── precos.rs   # tabela de preços por modelo (custo do claude)
-    ├── cambio.rs   # busca a cotação USD/BRL via reqwest (blocking)
-    └── render.rs   # núcleo puro compartilhado: heatmap, tabelas, barras, streaks
-dados/              # fixtures de log (gitignored)
-Formula/dev-cli.rb  # fórmula do Homebrew — regenerada pelo workflow de release
-bucket/dev-cli.json # manifest do Scoop (Windows) — regenerado pelo workflow de release
+crates/
+├── nucleo/           # lib: núcleo puro + casca de coleta (sem clap/ratatui)
+│   └── src/
+│       ├── lib.rs        # pub mod core, db, config, executor, metricas, coletor
+│       ├── core.rs        # parse puro de logs (contagem, formato Loguru)
+│       ├── metricas.rs     # p95, Severidade, ResumoContainer (puro)
+│       ├── db.rs          # schema SQLite, persistência, resumo_janela (IO)
+│       ├── config.rs       # Config via TOML + variáveis DEV_CLI_*
+│       ├── executor.rs     # executa docker local ou via SSH
+│       └── coletor.rs      # ciclo de coleta + thread coletora (mpsc)
+└── cli/              # bin dev-cli
+    └── src/
+        ├── main.rs         # entry point: parse do Cli e despacho
+        ├── cli.rs          # struct Cli + enum Commands + VersionArgs
+        ├── tui.rs          # loop de eventos da TUI (pilha de telas)
+        ├── screens/        # telas ratatui (dashboard, drill-down)
+        ├── logs/           # subcomandos logs: stats|containers|remote|dashboard
+        └── ai/             # subcomando ai stats
+            ├── mod.rs      # AiArgs, dispatch
+            ├── stats.rs    # StatsArgs, dispatch por provedor (opencode | claude)
+            ├── opencode.rs # IO: lê o SQLite do OpenCode via rusqlite
+            ├── claude.rs   # IO: lê os transcritos JSONL via walkdir + serde_json
+            ├── precos.rs   # tabela de preços por modelo (custo do claude)
+            ├── cambio.rs   # busca a cotação USD/BRL via reqwest (blocking)
+            └── render.rs   # núcleo puro compartilhado: heatmap, tabelas, barras, streaks
+dados/                # fixtures de log (gitignored)
+Formula/dev-cli.rb    # fórmula do Homebrew — regenerada pelo workflow de release
+bucket/dev-cli.json   # manifest do Scoop (Windows) — regenerado pelo workflow de release
 ```
 
 ## 🧱 Adicionando um subcomando
 
 1. Escrever um `*Args: clap::Args` com um método `execute(&self) -> Result<String, Box<dyn Error>>`.
-2. Adicionar a variante no enum `Commands` (em `src/cli.rs`) e o braço no `match`.
-3. Se a lógica crescer, extrair para o seu próprio módulo (ex.: `src/logs.rs`).
+2. Adicionar a variante no enum `Commands` (em `crates/cli/src/cli.rs`) e o braço no `match`.
+3. Se a lógica crescer, extrair para o seu próprio módulo (ex.: `crates/cli/src/logs/`); manter a parte pura no `crates/nucleo`.
 
 ## 🚀 Publicando uma release
 

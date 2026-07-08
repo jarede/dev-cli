@@ -4,8 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Projeto
 
-`dev-cli` é uma CLI em Rust (edition 2024 — exige toolchain recente —, binário
-único, sem workspace) — um canivete suíço para tarefas de desenvolvimento.
+`dev-cli` é uma CLI em Rust (edition 2024 — exige toolchain recente) — um
+canivete suíço para tarefas de desenvolvimento. É um workspace Cargo com
+`crates/nucleo` (lib: parse, métricas, coleta docker/SSH, SQLite) e
+`crates/cli` (bin `dev-cli`: clap + dashboard TUI em ratatui). Uma
+`crates/servidor` (axum) está prevista para a Fase 2.
 
 É um **projeto de aprendizado**: o objetivo é ganhar fluência em Rust
 construindo uma ferramenta real, em iterações pequenas. Por isso o código é
@@ -18,19 +21,22 @@ raciocínio.
 
 ```bash
 cargo build                 # compila (debug)
-cargo run -- version        # executa um subcomando
-cargo run -- logs stats     # estatísticas de logs de todos os containers
-cargo run -- ai stats opencode   # dashboard de tokens/custo do OpenCode (heatmap + modelos)
-cargo run -- ai stats claude     # horas trabalhadas + custo estimado do Claude Code (mês atual)
+cargo run -p dev-cli -- version        # executa um subcomando
+cargo run -p dev-cli -- logs stats     # estatísticas de logs de todos os containers
+cargo run -p dev-cli -- logs dashboard              # dashboard TUI ao vivo (docker local)
+cargo run -p dev-cli -- logs dashboard --ssh user@host   # idem, coletando via SSH
+cargo run -p dev-cli -- ai stats opencode   # dashboard de tokens/custo do OpenCode (heatmap + modelos)
+cargo run -p dev-cli -- ai stats claude     # horas trabalhadas + custo estimado do Claude Code (mês atual)
 cargo build --release       # binário em target/release/dev-cli
-cargo test                  # roda a suíte (28 testes em src/logs.rs, src/ai/render.rs, src/ai/precos.rs e src/ai/cambio.rs)
+cargo test --workspace      # roda a suíte inteira (crates/nucleo + crates/cli)
 cargo test contar           # roda testes cujo nome casa com "contar"
-cargo clippy                # rode antes de dar por pronto (ver abaixo)
+cargo clippy --workspace    # clippy no workspace inteiro (rode antes de dar por pronto — ver abaixo)
 ```
 
-**Antes de considerar uma mudança pronta, rode `cargo clippy` — não só
-`cargo test`.** O usuário usa clippy no editor (LazyVim/rust-analyzer) e o CI
-falha em warnings, então código com warning de clippy conta como incompleto.
+**Antes de considerar uma mudança pronta, rode `cargo clippy --workspace` —
+não só `cargo test`.** O usuário usa clippy no editor (LazyVim/rust-analyzer)
+e o CI falha em warnings, então código com warning de clippy conta como
+incompleto.
 
 CI (`.github/workflows/rust.yml`) roda `cargo build`, `cargo test` e
 `cargo clippy -- -D warnings` em push/PR na `main`. Não há rustfmt nem
@@ -38,17 +44,35 @@ pre-commit configurados — siga o estilo do arquivo que edita.
 
 ## Arquitetura
 
-Dispatch por `execute()` que retorna `Result<String, Box<dyn Error>>`:
+Workspace com dois crates. Dispatch por `execute()` que retorna
+`Result<String, Box<dyn Error>>`:
 
-- `src/main.rs` — entry point. `Cli::parse()`, chama `command.execute()`,
-  imprime o `Ok(String)` em stdout ou o erro em stderr com `exit(1)`. Erro sai
-  via `Display` (`{error}`); para contexto de debug, trocar para `{error:?}`.
-- `src/cli.rs` — `struct Cli` (wrapper do `#[command(subcommand)]`), enum
-  `Commands`, e `VersionArgs` com seu `execute()`.
-- `src/logs.rs` — subcomando `logs stats`. Padrão central: separar o **núcleo
-  puro** (`fn contar(&str) -> Contagens`, sem IO, 100% testável com strings
-  inline) da **casca de IO** (descoberta de arquivos via `read_dir`, leitura, e
-  render colorido com `owo-colors`).
+- **`crates/nucleo`** — lib sem NENHUMA dependência de terminal
+  (clap/ratatui/cores), consumida por `crates/cli` e (Fase 2) pelo futuro
+  `crates/servidor`:
+  - `core.rs` — parse puro de logs (`fn contar(&str) -> Contagens`, sem IO,
+    100% testável com strings inline).
+  - `metricas.rs` — núcleo puro de métricas: p95, `Severidade`,
+    `ResumoContainer`.
+  - `db.rs` — casca de IO: schema SQLite, persistência de contagens/linhas/
+    requests, `resumo_janela`.
+  - `config.rs` — `Config` via TOML + variáveis `DEV_CLI_*`.
+  - `executor.rs` — executa `docker` local ou via SSH (enum `Executor`).
+  - `coletor.rs` — ciclo de coleta reutilizável e thread coletora (canais
+    mpsc), usado pelo dashboard ao vivo.
+- **`crates/cli`** — bin `dev-cli`:
+  - `main.rs` — entry point. `Cli::parse()`, chama `command.execute()`,
+    imprime o `Ok(String)` em stdout ou o erro em stderr com `exit(1)`. Erro
+    sai via `Display` (`{error}`); para contexto de debug, trocar para
+    `{error:?}`.
+  - `cli.rs` — `struct Cli` (wrapper do `#[command(subcommand)]`), enum
+    `Commands`, e `VersionArgs` com seu `execute()`.
+  - `logs/` — subcomandos `logs stats|containers|remote|dashboard`; a parte
+    de apresentação (`render.rs`, cores via `owo-colors`) fica aqui, fora do
+    nucleo.
+  - `tui.rs` + `screens/` — telas ratatui empilhadas (`Screen` trait); o
+    dashboard (`screens/dashboard.rs`) é a tela inicial de `logs dashboard` e
+    reage à coleta ao vivo via canal mpsc.
 
 ## Convenções
 
@@ -65,9 +89,9 @@ Dispatch por `execute()` que retorna `Result<String, Box<dyn Error>>`:
 - **`Box<dyn Error>` por enquanto.** Migração para `enum CliError + thiserror`
   está prevista (Sprint 3 do roadmap).
 - **Novo subcomando:** adicionar `*Args` com `execute()` e a variante no enum
-  `Commands` + braço no `match` (em `src/cli.rs`); se a lógica crescer, extrair
-  para módulo próprio. Manter a parte pura (cálculo) separada da parte de efeito
-  (IO) — ver `src/logs.rs`.
+  `Commands` + braço no `match` (em `crates/cli/src/cli.rs`); se a lógica
+  crescer, extrair para módulo próprio. Manter a parte pura (cálculo) no
+  `crates/nucleo` separada da casca de IO — ver `crates/nucleo/src/core.rs`.
 - **Testes não dependem de `dados/`** (fixtures de log; gitignored, some em
   clones) — use strings inline. `dados/` e `/target` estão no `.gitignore`.
 

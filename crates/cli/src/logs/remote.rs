@@ -240,7 +240,11 @@ impl RemoteArgs {
 
         // Modo TUI: entrega o controle do terminal para a interface
         // interativa (só retorna quando o usuário sai dela).
-        crate::tui::run_tui(&conn)?;
+        crate::tui::run_tui(
+            &conn,
+            Box::new(crate::screens::containers::ContainerScreen::new(&conn)?),
+            None,
+        )?;
         Ok(String::new())
     }
 }

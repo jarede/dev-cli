@@ -8,10 +8,12 @@
 
 pub mod app_types;
 pub mod containers;
+pub mod dashboard;
 pub mod levels;
 pub mod lines;
 pub mod loguru_stats;
 
+use nucleo::coletor::EventoColeta;
 use ratatui::Frame;
 use rusqlite::Connection;
 
@@ -24,6 +26,10 @@ pub(crate) trait Screen {
     fn handle_click(&mut self, _row: u16, _col: u16, _conn: &Connection) -> ScreenAction {
         ScreenAction::None
     }
+    /// Reage a um evento da thread coletora (dados novos ou falha).
+    /// Implementação padrão: ignora — só o dashboard reage hoje, as telas
+    /// de drill-down mostram um recorte estático de quando foram abertas.
+    fn atualizar(&mut self, _evento: &EventoColeta, _conn: &Connection) {}
     /// Desenha o quadro no terminal.
     fn draw(&mut self, f: &mut Frame);
 }

@@ -14,6 +14,7 @@
 // `pub`, o módulo só é visível dentro de `src/logs/` (detalhes internos de
 // implementação).
 mod containers;
+mod dashboard;
 mod remote;
 mod render;
 mod stats;
@@ -69,12 +70,17 @@ impl LogsArgs {
             // `logs remote --db`, o `IF NOT EXISTS` é idempotente.
             // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
             nucleo::db::init_db(&conn)?;
-            crate::tui::run_tui(&conn)?;
+            crate::tui::run_tui(
+                &conn,
+                Box::new(crate::screens::containers::ContainerScreen::new(&conn)?),
+                None,
+            )?;
             return Ok(String::new());
         }
 
         // Modo normal: delega para o subcomando escolhido.
         match &self.comando {
+            Some(LogsCommands::Dashboard(args)) => args.execute(),
             Some(LogsCommands::Stats(args)) => args.execute(),
             Some(LogsCommands::Containers(args)) => args.execute(),
             Some(LogsCommands::Remote(args)) => args.execute(),
@@ -94,6 +100,8 @@ impl LogsArgs {
 // docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 #[derive(Subcommand, Debug)]
 enum LogsCommands {
+    /// Dashboard ao vivo: onde estão os problemas nos containers.
+    Dashboard(dashboard::DashboardArgs),
     /// Estatísticas de logs de containers (arquivos supervisord).
     Stats(stats::StatsArgs),
     /// Estatísticas de logs dos containers detectados via `container list`.

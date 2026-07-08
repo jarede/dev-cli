@@ -29,7 +29,7 @@ const NIVEIS_DOCKER: [&str; 12] = [
 // uma app que loga num formato específico; identificar o formato permite
 // filtrar por app dentro de um container que tem múltiplas apps.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum AppType {
+pub enum AppType {
     /// Uvicorn: "INFO:     message" (nível + dois-pontos no início da linha).
     Uvicorn,
     /// Elefante/Loguru: "YYYY-MM-DD HH:mm:ss.SSS | LEVEL | ..." ou linhas
@@ -54,14 +54,14 @@ impl fmt::Display for AppType {
 // `#[derive(Default)]` dá um construtor `Contagens::default()` com mapas vazios;
 // `PartialEq` permite comparar com `assert_eq!` nos testes.
 #[derive(Default, Debug, PartialEq)]
-pub(crate) struct Contagens {
-    pub(crate) niveis: BTreeMap<String, usize>, // coluna de nível do supervisord
-    pub(crate) palavras: BTreeMap<String, usize>, // palavras-chave encontradas no texto
+pub struct Contagens {
+    pub niveis: BTreeMap<String, usize>, // coluna de nível do supervisord
+    pub palavras: BTreeMap<String, usize>, // palavras-chave encontradas no texto
 }
 
 /// NÚCLEO PURO: conta ocorrências de níveis supervisord e palavras-chave
 /// no texto numa única passada, sem nenhum efeito colateral.
-pub(crate) fn contar(conteudo: &str) -> Contagens {
+pub fn contar(conteudo: &str) -> Contagens {
     let mut contagens = Contagens::default();
 
     // `lines()` itera linha a linha sem alocar cópias (empresta fatias do texto).
@@ -95,7 +95,7 @@ pub(crate) fn contar(conteudo: &str) -> Contagens {
 /// (depois da data), já sem códigos ANSI. Também é chamada linha a linha pelo
 /// modo `-f` (uma linha por vez), então precisa funcionar tanto para um texto
 /// gigante quanto para uma única linha recém-chegada.
-pub(crate) fn contar_niveis_container(conteudo: &str) -> BTreeMap<String, usize> {
+pub fn contar_niveis_container(conteudo: &str) -> BTreeMap<String, usize> {
     let mut niveis = BTreeMap::new();
     for linha in conteudo.lines() {
         let limpa = remover_ansi(linha);
@@ -141,7 +141,7 @@ fn extrair_nivel(token: &str) -> String {
 /// os formatos do supervisor ("2026-07-06 09:05:11,722 DEBG ..."), do
 /// container logs ("2026-07-03 INFO ..."), do Loguru ("|INFO     |...")
 /// e do uvicorn ("INFO:     ...").
-pub(crate) fn contar_niveis_docker(conteudo: &str) -> BTreeMap<String, usize> {
+pub fn contar_niveis_docker(conteudo: &str) -> BTreeMap<String, usize> {
     let mut niveis = BTreeMap::new();
     for linha in conteudo.lines() {
         let limpa = remover_ansi(linha);
@@ -162,7 +162,7 @@ pub(crate) fn contar_niveis_docker(conteudo: &str) -> BTreeMap<String, usize> {
 /// Devolve um mapa de nível → lista de linhas (já sem códigos ANSI).
 /// Normaliza tokens com `|`, `:` etc. nas pontas para capturar formatos
 /// Loguru e uvicorn que antes eram ignorados.
-pub(crate) fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
+pub fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
     let mut grupos: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for linha in conteudo.lines() {
         let limpa = remover_ansi(linha);
@@ -179,7 +179,7 @@ pub(crate) fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<Stri
 /// Remove sequências de escape ANSI (ex.: "\x1b[32m") de uma linha, deixando
 /// só o texto visível. `container logs` colore a saída, o que atrapalharia a
 /// busca pelo token do nível se não fosse removido antes.
-pub(crate) fn remover_ansi(linha: &str) -> String {
+pub fn remover_ansi(linha: &str) -> String {
     // `with_capacity` pré-aloca o buffer no tamanho da linha original: como
     // só removemos caracteres, o resultado nunca é maior, evitando
     // realocações durante os `push`.
@@ -210,7 +210,7 @@ pub(crate) fn remover_ansi(linha: &str) -> String {
 /// NÚCLEO PURO: detecta o tipo de aplicação responsável por uma linha de log
 /// analisando o formato da linha. Usa heurísticas de padrão textual em vez de
 /// posição fixa, porque as linhas vêm de `docker logs` (saída crua da app).
-pub(crate) fn detectar_app(linha: &str) -> AppType {
+pub fn detectar_app(linha: &str) -> AppType {
     let t = linha.trim();
     if t.is_empty() {
         return AppType::Outros;
@@ -270,7 +270,7 @@ pub(crate) fn detectar_app(linha: &str) -> AppType {
 /// NÚCLEO PURO: agrupa linhas por tipo de app e, dentro de cada app, por nível
 /// de log. Recebe as linhas já sem ANSI (como vêm do banco). Devolve um mapa
 /// AppType → (nível → [linhas]).
-pub(crate) fn analisar_apps(linhas: &[String]) -> BTreeMap<AppType, BTreeMap<String, Vec<String>>> {
+pub fn analisar_apps(linhas: &[String]) -> BTreeMap<AppType, BTreeMap<String, Vec<String>>> {
     let mut resultado: BTreeMap<AppType, BTreeMap<String, Vec<String>>> = BTreeMap::new();
     for linha in linhas {
         let app = detectar_app(linha);
@@ -299,24 +299,24 @@ pub(crate) fn analisar_apps(linhas: &[String]) -> BTreeMap<AppType, BTreeMap<Str
 /// YYYY-MM-DD HH:mm:ss.SSS |LEVEL     |module:func:line - [tenant] METHOD STATUS /path  duration [IP] [UA]
 /// ```
 #[derive(Debug, Clone)]
-pub(crate) struct LoguruEntry {
-    pub(crate) timestamp: String,
-    pub(crate) level: String,
-    pub(crate) modulo: String,
-    pub(crate) funcao: String,
-    pub(crate) linha_numero: u32,
-    pub(crate) tenant: String,
-    pub(crate) metodo: String,
-    pub(crate) status: u16,
-    pub(crate) path: String,
-    pub(crate) duracao_seg: f64,
-    pub(crate) client_ip: String,
-    pub(crate) user_agent: String,
+pub struct LoguruEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub modulo: String,
+    pub funcao: String,
+    pub linha_numero: u32,
+    pub tenant: String,
+    pub metodo: String,
+    pub status: u16,
+    pub path: String,
+    pub duracao_seg: f64,
+    pub client_ip: String,
+    pub user_agent: String,
 }
 
 /// Tenta parsear uma linha como Loguru/Elefante. Retorna `None` se a linha
 /// não casa com o formato esperado OU não é do tipo `AppType::Elefante`.
-pub(crate) fn parse_loguru_line(linha: &str) -> Option<LoguruEntry> {
+pub fn parse_loguru_line(linha: &str) -> Option<LoguruEntry> {
     let t = linha.trim();
     if detectar_app(t) != AppType::Elefante {
         return None;
@@ -381,7 +381,7 @@ pub(crate) fn parse_loguru_line(linha: &str) -> Option<LoguruEntry> {
 
 /// Formata uma entrada Loguru para exibição numa única linha, destacando
 /// os campos mais relevantes e encurtando os menos importantes.
-pub(crate) fn format_loguru_entry(e: &LoguruEntry) -> String {
+pub fn format_loguru_entry(e: &LoguruEntry) -> String {
     let ts = if e.timestamp.len() >= 19 {
         &e.timestamp[..19]
     } else {

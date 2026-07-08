@@ -344,11 +344,12 @@ dependencies = [
 
 [[package]]
 name = "dev-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "clap",
  "crossterm",
+ "nucleo",
  "owo-colors",
  "ratatui",
  "reqwest",
@@ -1039,6 +1040,13 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nucleo"
+version = "0.2.0"
+dependencies = [
+ "rusqlite",
 ]
 
 [[package]]

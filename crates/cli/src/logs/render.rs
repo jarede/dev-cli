@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 // `Display` ganha métodos como `.red()`, `.bold()`, `.dimmed()`.
 // docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html
 use owo_colors::OwoColorize;
+use rusqlite::Connection;
 
-use crate::logs::core::Contagens;
+use nucleo::core::Contagens;
 
 /// Monta o bloco de texto (colorido) com os níveis de um container.
 /// Recebe um `BTreeMap` "cru" (em vez do `struct Contagens`) porque aqui
@@ -98,4 +99,71 @@ fn colorir_nivel(nivel: &str, contagem: usize) -> String {
         // `_` é o caso-curinga: qualquer outro rótulo fica sem cor.
         _ => texto,
     }
+}
+
+/// Lê as contagens acumuladas do banco e formata para exibição.
+pub(crate) fn exibir_estatisticas(conn: &Connection) -> Result<String, Box<dyn std::error::Error>> {
+    let mut stmt = conn.prepare(
+        "SELECT container_name, level, SUM(count) as total
+         FROM log_counts
+         GROUP BY container_name, level
+         ORDER BY container_name, level",
+    )?;
+
+    // Mapa aninhado: container -> (nível -> total). O `BTreeMap` externo dá
+    // ordem alfabética por container; o interno, por nível.
+    let mut dados: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    // O closure de `query_map` roda por linha e pode falhar em cada `row.get`
+    // (tipo errado, coluna ausente); por isso ele próprio devolve `Result`,
+    // e usamos `?` dentro dele para propagar esse erro por linha.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Statement.html#method.query_map
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
+    let linhas = stmt.query_map([], |row| {
+        let nome: String = row.get(0)?;
+        let nivel: String = row.get(1)?;
+        let total: i64 = row.get(2)?;
+        Ok((nome, nivel, total as usize))
+    })?;
+
+    for linha in linhas {
+        // Aqui o `?` é sobre o `Result` de CADA linha (o iterador de
+        // `query_map` produz `Result<(...), Error>`), não sobre o closure
+        // acima.
+        let (nome, nivel, total) = linha?;
+        // API `entry`: garante um `BTreeMap` vazio para containers novos
+        // antes de inserir o par nível/total.
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
+        // docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_default
+        // docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.insert
+        dados.entry(nome).or_default().insert(nivel, total);
+    }
+
+    // Carrega o status (uptime) de cada container do banco
+    let mut stmt2 = conn
+        .prepare("SELECT name, uptime FROM containers WHERE uptime IS NOT NULL AND uptime != ''")?;
+    let mut status_map: BTreeMap<String, String> = BTreeMap::new();
+    // `.flatten()` sobre um iterador de `Result<(String, String), Error>`
+    // funciona porque `Result` também implementa `IntoIterator` (0 ou 1
+    // item): `Ok(x)` vira um iterador de 1 elemento, `Err(_)` vira vazio —
+    // é uma forma mais curta de "ignore os erros e siga com os `Ok`".
+    // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.flatten
+    // docs: https://doc.rust-lang.org/std/result/enum.Result.html
+    // docs: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html
+    for row in stmt2
+        .query_map([], |r| {
+            let n: String = r.get(0)?;
+            let s: String = r.get(1)?;
+            Ok((n, s))
+        })?
+        .flatten()
+    {
+        status_map.insert(row.0, row.1);
+    }
+
+    let mut saida = String::new();
+    for (nome, niveis) in &dados {
+        let status = status_map.get(nome).map(|s| s.as_str());
+        saida.push_str(&renderizar_container(nome, status, niveis));
+    }
+    Ok(saida)
 }

@@ -14,7 +14,7 @@ use std::io::Write;
 
 use clap::Args;
 
-use crate::logs::core::contar_niveis_container;
+use nucleo::core::contar_niveis_container;
 use crate::logs::render::renderizar_container;
 
 /// Estatísticas de logs de todos os containers detectados via `container list`.

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 // docs: https://docs.rs/clap/latest/clap/trait.Args.html
 use clap::Args;
 
-use crate::logs::core::contar;
+use nucleo::core::contar;
 use crate::logs::render::renderizar;
 
 /// Estatísticas de logs de um container específico, ou de todos.

@@ -14,8 +14,6 @@
 // `pub`, o módulo só é visível dentro de `src/logs/` (detalhes internos de
 // implementação).
 mod containers;
-pub(crate) mod core;
-mod db;
 mod remote;
 mod render;
 mod stats;
@@ -70,7 +68,7 @@ impl LogsArgs {
             // log_lines, alerts) — se o banco já tiver sido criado por
             // `logs remote --db`, o `IF NOT EXISTS` é idempotente.
             // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
-            db::init_db(&conn)?;
+            nucleo::db::init_db(&conn)?;
             crate::tui::run_tui(&conn)?;
             return Ok(String::new());
         }

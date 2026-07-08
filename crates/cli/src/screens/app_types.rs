@@ -16,7 +16,7 @@ use ratatui::{
 };
 use rusqlite::Connection;
 
-use crate::logs::core::{analisar_apps, parse_loguru_line, AppType};
+use nucleo::core::{analisar_apps, parse_loguru_line, AppType};
 use crate::screens::levels::LevelsScreen;
 use crate::screens::loguru_stats::LoguruStatsScreen;
 use crate::screens::{Screen, ScreenAction};

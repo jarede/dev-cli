@@ -22,11 +22,9 @@ use clap::Args;
 use owo_colors::OwoColorize;
 use rusqlite::Connection;
 
-use crate::logs::core::{categorizar_por_nivel, contar_niveis_docker};
-use crate::logs::db::{
-    armazenar_contagens, armazenar_linhas, exibir_estatisticas, init_db,
-    verificar_status_containers,
-};
+use nucleo::core::{categorizar_por_nivel, contar_niveis_docker};
+use nucleo::db::{armazenar_contagens, armazenar_linhas, init_db, verificar_status_containers};
+use crate::logs::render::exibir_estatisticas;
 use crate::logs::render::renderizar_container;
 
 /// Metadados de um container obtidos via `docker ps`.

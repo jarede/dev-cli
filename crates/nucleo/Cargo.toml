@@ -1,0 +1,10 @@
+[package]
+name = "nucleo"
+description = "Núcleo do dev-cli: parse de logs, métricas, coleta docker e SQLite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite.workspace = true

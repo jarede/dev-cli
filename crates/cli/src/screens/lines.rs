@@ -16,7 +16,7 @@ use ratatui::{
 };
 use rusqlite::Connection;
 
-use crate::logs::core::{format_loguru_entry, parse_loguru_line};
+use nucleo::core::{format_loguru_entry, parse_loguru_line};
 use crate::screens::{Screen, ScreenAction};
 
 pub(crate) struct LinesScreen {

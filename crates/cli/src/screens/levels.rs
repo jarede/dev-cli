@@ -3,8 +3,8 @@
 // menor total, cada um colorido por severidade.
 //
 // Quando entra via AppTypeScreen, recebe `lines_by_level` pré-carregadas
-// para evitar uma segunda consulta ao banco. Quando entra direto de
-// ContainerScreen (modo sem detecção de app), carrega do banco.
+// para evitar uma segunda consulta ao banco; caso contrário, carrega do
+// banco diretamente.
 //
 // Navegação: ↑/↓ seleciona, Enter vai para as linhas daquele nível,
 // Esc volta para a tela anterior.

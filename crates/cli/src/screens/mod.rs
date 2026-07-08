@@ -7,7 +7,6 @@
 // momento, sem depender de estado externo.
 
 pub mod app_types;
-pub mod containers;
 pub mod dashboard;
 pub mod levels;
 pub mod lines;

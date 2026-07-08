@@ -1,6 +1,6 @@
 // CASCA DE IO: subcomando `logs remote`.
 // Executa `docker logs` via SSH em hosts remotos, com coleta incremental
-// opcional via SQLite, modo --watch e TUI interativa.
+// opcional via SQLite e modo --watch (repete a coleta a cada 5 minutos).
 
 // `Write` traz o método `.flush()`, usado para forçar a stdout bufferizada a
 // aparecer imediatamente no terminal (ver comentários mais abaixo).
@@ -59,9 +59,6 @@ pub struct RemoteArgs {
     /// Modo contínuo: coleta a cada 5 minutos (requer --db).
     #[arg(short, long)]
     watch: bool,
-    /// Abre TUI interativo para navegar nas estatísticas (requer --db).
-    #[arg(long)]
-    tui: bool,
 }
 
 impl RemoteArgs {
@@ -109,23 +106,8 @@ impl RemoteArgs {
         let conn = Connection::open(db_path)?;
         init_db(&conn)?;
 
-        // Se o DB está vazio ou o usuário quer TUI, fazemos uma coleta agora
-        // `query_row` executa um SELECT que devolve no máximo 1 linha; o
-        // closure `|r| r.get::<_, i64>(0)` extrai a coluna 0 como `i64`
-        // (a "turbofish" `::<_, i64>` diz ao rusqlite o tipo esperado).
-        // `unwrap_or(0)`: se a consulta falhar (ex.: tabela ainda sem uso),
-        // tratamos como "0 linhas" em vez de propagar erro aqui.
-        // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.query_row
-        // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html#method.get
-        // docs: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or
-        let db_vazio = conn
-            .query_row("SELECT COUNT(*) FROM containers", [], |r| {
-                r.get::<_, i64>(0)
-            })
-            .unwrap_or(0)
-            == 0;
-
-        if db_vazio || !self.tui {
+        // Coleta + exibição; com --watch, repete a cada 5 minutos.
+        loop {
             // `duration_since(UNIX_EPOCH)` dá o tempo decorrido desde a
             // "época Unix" (1970-01-01); `.as_secs()` extrai os segundos.
             // `unwrap_or_default()` cai para `Duration::ZERO` no caso (bem
@@ -141,7 +123,7 @@ impl RemoteArgs {
 
             let mut saida = String::new();
 
-            // 1. Descobre containers rodando (ou usa o específico) e detecta paradas/restart
+            // 1. Descobre containers rodando (ou usa o específico) e detecta paradas/restart.
             let rodando = if let Some(nome) = &self.container {
                 vec![ContainerDocker {
                     nome: nome.clone(),
@@ -164,7 +146,7 @@ impl RemoteArgs {
                 saida.push_str(&format!("⚠️  {}\n", alerta.bold()));
             }
 
-            // 2. Coleta incremental dos que estão rodando
+            // 2. Coleta incremental dos que estão rodando.
             for c in &rodando {
                 // `rusqlite::params![...]` monta os valores para os `?1`, `?2`
                 // etc. da query, escapando-os corretamente (evita SQL
@@ -186,7 +168,7 @@ impl RemoteArgs {
                     obter_logs_desde(&executor, &c.nome, ultima_coleta)?
                 };
 
-                // Extrai linhas categorizadas por nível e persiste no banco
+                // Extrai linhas categorizadas por nível e persiste no banco.
                 let grupos = categorizar_por_nivel(&conteudo);
                 // Reduz cada grupo (nível -> Vec<linha>) à sua contagem
                 // (nível -> quantidade); `v.len()` é O(1) num `Vec`.
@@ -209,42 +191,31 @@ impl RemoteArgs {
                 )?;
             }
 
-            // 3. Exibe acumulado do banco (só se não for TUI)
-            if !self.tui {
-                saida.push_str(&exibir_estatisticas(&conn)?);
+            // 3. Exibe o acumulado do banco.
+            saida.push_str(&exibir_estatisticas(&conn)?);
 
-                if !self.watch {
-                    return Ok(saida.trim_end().to_string());
-                }
-
-                // Modo --watch: limpa, exibe painel e espera 5 min
-                // "\x1b[2J" (limpa a tela) + "\x1b[H" (move o cursor para o
-                // canto superior esquerdo) são sequências de escape ANSI —
-                // truque comum para simular um "dashboard" que se redesenha.
-                print!("\x1b[2J\x1b[H{}", saida.trim_end());
-                // `print!` só escreve no buffer interno da stdout; sem
-                // `flush()` o terminal pode não mostrar nada até o processo
-                // encerrar ou o buffer encher. O `?` propaga qualquer erro de
-                // IO ao tentar escrever (raro, mas possível).
-                // docs: https://doc.rust-lang.org/std/macro.print.html
-                // docs: https://doc.rust-lang.org/std/io/trait.Write.html#tymethod.flush
-                // docs: https://doc.rust-lang.org/std/io/fn.stdout.html
-                std::io::stdout().flush()?;
-                // Bloqueia esta thread (a única do programa aqui) por 5
-                // minutos antes de seguir para a próxima instrução.
-                // docs: https://doc.rust-lang.org/std/thread/fn.sleep.html
-                // docs: https://doc.rust-lang.org/std/time/struct.Duration.html#method.from_secs
-                std::thread::sleep(Duration::from_secs(300));
+            if !self.watch {
+                return Ok(saida.trim_end().to_string());
             }
-        }
 
-        // Modo TUI: entrega o controle do terminal para a interface
-        // interativa (só retorna quando o usuário sai dela).
-        crate::tui::run_tui(
-            &conn,
-            Box::new(crate::screens::containers::ContainerScreen::new(&conn)?),
-            None,
-        )?;
-        Ok(String::new())
+            // Modo --watch: limpa, exibe painel e espera 5 min.
+            // "\x1b[2J" (limpa a tela) + "\x1b[H" (move o cursor para o
+            // canto superior esquerdo) são sequências de escape ANSI —
+            // truque comum para simular um "dashboard" que se redesenha.
+            print!("\x1b[2J\x1b[H{}", saida.trim_end());
+            // `print!` só escreve no buffer interno da stdout; sem
+            // `flush()` o terminal pode não mostrar nada até o processo
+            // encerrar ou o buffer encher. O `?` propaga qualquer erro de
+            // IO ao tentar escrever (raro, mas possível).
+            // docs: https://doc.rust-lang.org/std/macro.print.html
+            // docs: https://doc.rust-lang.org/std/io/trait.Write.html#tymethod.flush
+            // docs: https://doc.rust-lang.org/std/io/fn.stdout.html
+            std::io::stdout().flush()?;
+            // Bloqueia esta thread (a única do programa aqui) por 5
+            // minutos antes de seguir para a próxima instrução.
+            // docs: https://doc.rust-lang.org/std/thread/fn.sleep.html
+            // docs: https://doc.rust-lang.org/std/time/struct.Duration.html#method.from_secs
+            std::thread::sleep(Duration::from_secs(300));
+        }
     }
 }

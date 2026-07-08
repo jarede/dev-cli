@@ -1,4 +1,5 @@
-// Grupo de subcomandos `logs stats`, `logs containers` e `logs remote`.
+// Grupo de subcomandos `logs stats`, `logs containers` e `logs remote`,
+// além do modo `--tui` para navegação visual em banco SQLite local.
 //
 // A ideia central de arquitetura aqui é separar três responsabilidades:
 //   1. NÚCLEO PURO  -> `core.rs`: funções que recebem texto e devolvem
@@ -13,7 +14,7 @@
 // `pub`, o módulo só é visível dentro de `src/logs/` (detalhes internos de
 // implementação).
 mod containers;
-mod core;
+pub(crate) mod core;
 mod db;
 mod remote;
 mod render;
@@ -26,6 +27,7 @@ mod stats;
 // docs: https://docs.rs/clap/latest/clap/trait.Subcommand.html
 use clap::Args;
 use clap::Subcommand;
+use std::path::PathBuf;
 
 /// Comandos de log.
 // `#[derive(Args, Debug)]`: `Args` faz o clap tratar esta struct como um
@@ -37,22 +39,51 @@ use clap::Subcommand;
 // docs: https://doc.rust-lang.org/std/fmt/trait.Debug.html
 // docs: https://docs.rs/clap/latest/clap/_derive/index.html
 #[derive(Args, Debug)]
-#[command(help_template = crate::help::SUBCOMANDOS)]
+#[command(help_template = crate::help::ARGUMENTOS_SUBCOMANDOS)]
 pub struct LogsArgs {
-    // `logs` é um grupo: ele apenas encaminha para um subcomando aninhado.
+    // `logs` é um grupo: ele encaminha para um subcomando aninhado ou ativa
+    // o modo TUI. O `Option` permite que o usuário digite apenas `logs --tui`
+    // sem um subcomando, mas ainda exige um subcomando nos demais casos.
     #[command(subcommand)]
-    comando: LogsCommands,
+    comando: Option<LogsCommands>,
+
+    /// Abre TUI interativo para navegar nas estatísticas do banco.
+    #[arg(long, help_heading = crate::help::OPCOES)]
+    tui: bool,
+
+    /// Caminho do banco SQLite (obrigatório com --tui).
+    #[arg(long, help_heading = crate::help::OPCOES)]
+    db: Option<PathBuf>,
 }
 
 impl LogsArgs {
     // `&self` = empréstimo imutável; só lemos os campos, não os consumimos.
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // `match` sobre a referência do enum; o `match` exaustivo obriga a
-        // tratar cada variante nova assim que ela for adicionada.
+        // Modo TUI: abre a interface interativa com o banco local
+        if self.tui {
+            let db_path = self
+                .db
+                .as_ref()
+                .ok_or("--db é obrigatório com --tui")?;
+            let conn = rusqlite::Connection::open(db_path)?;
+            // Garante que as tabelas do app existam (container, log_counts,
+            // log_lines, alerts) — se o banco já tiver sido criado por
+            // `logs remote --db`, o `IF NOT EXISTS` é idempotente.
+            // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
+            db::init_db(&conn)?;
+            crate::tui::run_tui(&conn)?;
+            return Ok(String::new());
+        }
+
+        // Modo normal: delega para o subcomando escolhido.
         match &self.comando {
-            LogsCommands::Stats(args) => args.execute(),
-            LogsCommands::Containers(args) => args.execute(),
-            LogsCommands::Remote(args) => args.execute(),
+            Some(LogsCommands::Stats(args)) => args.execute(),
+            Some(LogsCommands::Containers(args)) => args.execute(),
+            Some(LogsCommands::Remote(args)) => args.execute(),
+            None => Err(
+                "nenhum subcomando especificado. Use `logs --help` para ver os subcomandos disponíveis."
+                    .into(),
+            ),
         }
     }
 }

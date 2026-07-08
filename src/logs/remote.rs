@@ -143,8 +143,16 @@ impl RemoteArgs {
 
             let mut saida = String::new();
 
-            // 1. Descobre containers rodando e detecta paradas/restart
-            let rodando = listar_containers_remoto(&self.host)?;
+            // 1. Descobre containers rodando (ou usa o específico) e detecta paradas/restart
+            let rodando = if let Some(nome) = &self.container {
+                vec![ContainerRemoto {
+                    nome: nome.clone(),
+                    status: String::new(),
+                    criado_em: String::new(),
+                }]
+            } else {
+                listar_containers_remoto(&self.host)?
+            };
             // `iter()` empresta cada `ContainerRemoto` (sem consumir `rodando`,
             // que ainda usamos logo abaixo); `.clone()` copia só a `String`
             // do nome para o novo `Vec`.

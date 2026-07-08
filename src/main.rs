@@ -8,6 +8,7 @@ mod ai;
 mod cli;
 mod help;
 mod logs;
+mod screens;
 mod tui;
 
 // Traz o método `parse()` (da trait `Parser`) para o escopo. Só declarar

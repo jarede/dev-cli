@@ -58,7 +58,9 @@ pub struct ParametrosColetor {
 }
 
 /// Timestamp Unix atual em segundos (0 se o relógio estiver antes de 1970).
-fn agora_unix() -> i64 {
+/// Pública porque a API da Fase 2 usa o mesmo relógio para calcular o corte
+/// da janela — evita duas definições de "agora" no workspace.
+pub fn agora_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

@@ -234,6 +234,98 @@ pub fn prune_antigos(conn: &Connection, corte: i64) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// Uma linha de log carregada do banco — o item das telas de drill-down e
+/// do endpoint `/api/containers/{nome}/linhas` da Fase 2.
+// `serde::Serialize` com caminho completo: evita um `use` só para o derive.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LinhaLog {
+    pub nivel: String,
+    pub linha: String,
+    pub collected_at: i64,
+}
+
+/// Converte uma linha do resultado SQL em `LinhaLog`. Extraída como função
+/// nomeada (em vez de closure) para ser reutilizada nas DUAS queries de
+/// `carregar_linhas_janela` — closures têm tipos anônimos e não podem ser
+/// "coladas" em dois `query_map` diferentes com facilidade.
+// docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Row.html
+fn mapear_linha(row: &rusqlite::Row<'_>) -> rusqlite::Result<LinhaLog> {
+    Ok(LinhaLog {
+        nivel: row.get(0)?,
+        linha: row.get(1)?,
+        collected_at: row.get(2)?,
+    })
+}
+
+/// Linhas de um container dentro da janela (`collected_at >= corte`), das
+/// mais recentes para as mais antigas, opcionalmente filtradas por nível.
+/// `limite` protege a API de respostas gigantes.
+///
+/// Dois SQLs fixos em vez de concatenar o filtro na string: SQL montado por
+/// concatenação é a porta clássica de SQL injection; com statements fixas e
+/// parâmetros `?N` o rusqlite escapa tudo por nós.
+// docs: https://docs.rs/rusqlite/latest/rusqlite/macro.params.html
+pub fn carregar_linhas_janela(
+    conn: &Connection,
+    nome: &str,
+    nivel: Option<&str>,
+    corte: i64,
+    limite: usize,
+) -> Result<Vec<LinhaLog>, Box<dyn std::error::Error>> {
+    let mut resultado = Vec::new();
+    if let Some(nivel) = nivel {
+        let mut stmt = conn.prepare(
+            "SELECT level, line, collected_at FROM log_lines
+             WHERE container_name = ?1 AND level = ?2 AND collected_at >= ?3
+             ORDER BY collected_at DESC, id DESC LIMIT ?4",
+        )?;
+        let linhas =
+            stmt.query_map(rusqlite::params![nome, nivel, corte, limite as i64], mapear_linha)?;
+        resultado.extend(linhas.filter_map(|r| r.ok()));
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT level, line, collected_at FROM log_lines
+             WHERE container_name = ?1 AND collected_at >= ?2
+             ORDER BY collected_at DESC, id DESC LIMIT ?3",
+        )?;
+        let linhas =
+            stmt.query_map(rusqlite::params![nome, corte, limite as i64], mapear_linha)?;
+        resultado.extend(linhas.filter_map(|r| r.ok()));
+    }
+    Ok(resultado)
+}
+
+/// Um alerta persistido (container parou/reiniciou) — item do endpoint
+/// `/api/alertas` da Fase 2.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Alerta {
+    pub container: String,
+    pub tipo: String,
+    pub mensagem: String,
+    pub criado_em: i64,
+}
+
+/// Alertas com `created_at >= corte`, mais recentes primeiro, até `limite`.
+pub fn alertas_recentes(
+    conn: &Connection,
+    corte: i64,
+    limite: usize,
+) -> Result<Vec<Alerta>, Box<dyn std::error::Error>> {
+    let mut stmt = conn.prepare(
+        "SELECT container_name, alert_type, message, created_at FROM alerts
+         WHERE created_at >= ?1 ORDER BY created_at DESC, id DESC LIMIT ?2",
+    )?;
+    let alertas = stmt.query_map(rusqlite::params![corte, limite as i64], |row| {
+        Ok(Alerta {
+            container: row.get(0)?,
+            tipo: row.get(1)?,
+            mensagem: row.get(2)?,
+            criado_em: row.get(3)?,
+        })
+    })?;
+    Ok(alertas.filter_map(|r| r.ok()).collect())
+}
+
 /// Monta o resumo por container considerando só a janela `collected_at >= corte`.
 /// Contagens vêm do SQL (rápido); p95/máx são calculados em Rust a partir das
 /// durações da janela (SQLite não tem percentil nativo).
@@ -401,5 +493,67 @@ mod tests {
         // Antes esta função APAGAVA as linhas anteriores; agora acumula
         // (a retenção é por tempo, via prune_antigos).
         assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn carregar_linhas_janela_filtra_por_nivel_e_janela() {
+        let conn = banco();
+        let mut grupos = std::collections::BTreeMap::new();
+        grupos.insert("ERROR".to_string(), vec!["erro novo".to_string()]);
+        grupos.insert("INFO".to_string(), vec!["info nova".to_string()]);
+        armazenar_linhas(&conn, "app", &grupos, 1000).unwrap();
+        let mut antigos = std::collections::BTreeMap::new();
+        antigos.insert("ERROR".to_string(), vec!["erro velho".to_string()]);
+        armazenar_linhas(&conn, "app", &antigos, 10).unwrap();
+
+        // Filtro por nível: só o ERROR dentro da janela (corte 500).
+        let erros = carregar_linhas_janela(&conn, "app", Some("ERROR"), 500, 100).unwrap();
+        assert_eq!(erros.len(), 1);
+        assert_eq!(erros[0].linha, "erro novo");
+        assert_eq!(erros[0].nivel, "ERROR");
+
+        // Sem filtro: as duas linhas da janela, e nada do container errado.
+        let todas = carregar_linhas_janela(&conn, "app", None, 500, 100).unwrap();
+        assert_eq!(todas.len(), 2);
+        let outro = carregar_linhas_janela(&conn, "outro", None, 0, 100).unwrap();
+        assert!(outro.is_empty());
+    }
+
+    #[test]
+    fn carregar_linhas_janela_respeita_limite_e_ordem() {
+        let conn = banco();
+        for (i, ts) in [(1, 100i64), (2, 200), (3, 300)] {
+            let mut grupos = std::collections::BTreeMap::new();
+            grupos.insert("INFO".to_string(), vec![format!("linha {i}")]);
+            armazenar_linhas(&conn, "app", &grupos, ts).unwrap();
+        }
+        let linhas = carregar_linhas_janela(&conn, "app", None, 0, 2).unwrap();
+        // Limite 2, mais recentes primeiro.
+        assert_eq!(linhas.len(), 2);
+        assert_eq!(linhas[0].linha, "linha 3");
+        assert_eq!(linhas[1].linha, "linha 2");
+    }
+
+    #[test]
+    fn alertas_recentes_ordena_e_respeita_corte() {
+        let conn = banco();
+        conn.execute(
+            "INSERT INTO alerts (container_name, alert_type, message, created_at)
+             VALUES ('app', 'stopped', 'Container parou', 100),
+                    ('app', 'restarted', 'Container reiniciou', 900)",
+            [],
+        )
+        .unwrap();
+
+        let alertas = alertas_recentes(&conn, 500, 100).unwrap();
+        assert_eq!(alertas.len(), 1);
+        assert_eq!(alertas[0].tipo, "restarted");
+        assert_eq!(alertas[0].container, "app");
+        assert_eq!(alertas[0].criado_em, 900);
+
+        // Corte 0 pega os dois, mais recente primeiro.
+        let todos = alertas_recentes(&conn, 0, 100).unwrap();
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].tipo, "restarted");
     }
 }

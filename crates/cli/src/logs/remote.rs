@@ -24,17 +24,9 @@ use rusqlite::Connection;
 
 use nucleo::core::{categorizar_por_nivel, contar_niveis_docker};
 use nucleo::db::{armazenar_contagens, armazenar_linhas, init_db, verificar_status_containers};
+use nucleo::executor::{ContainerDocker, Executor, listar_containers, obter_logs, obter_logs_desde};
 use crate::logs::render::exibir_estatisticas;
 use crate::logs::render::renderizar_container;
-
-/// Metadados de um container obtidos via `docker ps`.
-struct ContainerRemoto {
-    nome: String,
-    /// Status textual: "Up 2 days", "Exited (0) 3 days ago", etc.
-    status: String,
-    /// Timestamp ISO de criação: "2026-07-04 12:00:00 +0000 UTC"
-    criado_em: String,
-}
 
 /// Estatísticas de logs de containers via SSH (executa `docker logs` no host remoto).
 #[derive(Args, Debug)]
@@ -43,9 +35,10 @@ pub struct RemoteArgs {
     /// Container específico; se omitido, varre todos os containers rodando.
     #[arg(help_heading = crate::help::ARGUMENTOS_HEADING)]
     container: Option<String>,
-    /// Host SSH (user@host).
-    #[arg(long, default_value = "jarede.silva@qa.bistek.com.br")]
-    host: String,
+    /// Host SSH ("user@host") para coletar de uma VM remota.
+    /// Sem esta flag, executa `docker` localmente (modo padrão na VM).
+    #[arg(long)]
+    ssh: Option<String>,
     /// Quantidade de linhas do final de cada container (últimas N linhas).
     /// Ignorado quando `--db` está ativo usa incremental `--since`.
     // `default_value_t = 1000`: variante de `default_value` para tipos que já
@@ -73,6 +66,13 @@ pub struct RemoteArgs {
 
 impl RemoteArgs {
     pub fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
+        // Decide a estratégia: SSH só quando pedido; o padrão é docker local
+        // (os binários rodam na própria VM que tem o docker).
+        let executor = match &self.ssh {
+            Some(host) => Executor::Ssh(host.clone()),
+            None => Executor::Local,
+        };
+
         // `let ... else`: tenta desestruturar o `Option`; se for `None`, o
         // bloco `else` OBRIGATORIAMENTE desvia o fluxo (aqui, com `return`)
         // antes de chegar na linha seguinte — diferente de `if let`, não há
@@ -81,17 +81,17 @@ impl RemoteArgs {
         let Some(db_path) = &self.db else {
             // Modo original: one-shot sem persistência
             let containers = if let Some(container) = &self.container {
-                vec![ContainerRemoto {
+                vec![ContainerDocker {
                     nome: container.clone(),
                     status: String::new(),
                     criado_em: String::new(),
                 }]
             } else {
-                listar_containers_remoto(&self.host)?
+                listar_containers(&executor)?
             };
             let mut saida = String::new();
             for c in containers {
-                let conteudo = obter_logs_remoto(&self.host, &c.nome, self.tail)?;
+                let conteudo = obter_logs(&executor, &c.nome, self.tail)?;
                 let niveis = contar_niveis_docker(&conteudo);
                 let status = if c.status.is_empty() {
                     None
@@ -143,15 +143,15 @@ impl RemoteArgs {
 
             // 1. Descobre containers rodando (ou usa o específico) e detecta paradas/restart
             let rodando = if let Some(nome) = &self.container {
-                vec![ContainerRemoto {
+                vec![ContainerDocker {
                     nome: nome.clone(),
                     status: String::new(),
                     criado_em: String::new(),
                 }]
             } else {
-                listar_containers_remoto(&self.host)?
+                listar_containers(&executor)?
             };
-            // `iter()` empresta cada `ContainerRemoto` (sem consumir `rodando`,
+            // `iter()` empresta cada `ContainerDocker` (sem consumir `rodando`,
             // que ainda usamos logo abaixo); `.clone()` copia só a `String`
             // do nome para o novo `Vec`.
             // docs: https://doc.rust-lang.org/std/vec/struct.Vec.html#method.iter
@@ -181,9 +181,9 @@ impl RemoteArgs {
                     .unwrap_or(0);
 
                 let conteudo = if ultima_coleta == 0 {
-                    obter_logs_remoto(&self.host, &c.nome, self.tail)?
+                    obter_logs(&executor, &c.nome, self.tail)?
                 } else {
-                    obter_logs_remoto_desde(&self.host, &c.nome, ultima_coleta)?
+                    obter_logs_desde(&executor, &c.nome, ultima_coleta)?
                 };
 
                 // Extrai linhas categorizadas por nível e persiste no banco
@@ -243,91 +243,4 @@ impl RemoteArgs {
         crate::tui::run_tui(&conn)?;
         Ok(String::new())
     }
-}
-
-/// CASCA DE IO: busca logs de um container desde um timestamp Unix (segundos).
-fn obter_logs_remoto_desde(
-    host: &str,
-    nome: &str,
-    desde: i64,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let cmd = format!("docker logs --since {desde} {nome}");
-    let saida = std::process::Command::new("ssh")
-        .args([host, &cmd])
-        .output()
-        .map_err(|erro| format!("falha ao obter logs incrementais de '{nome}' via SSH: {erro}"))?;
-
-    if !saida.status.success() {
-        return Err(format!(
-            "'docker logs --since {desde} {nome}' via SSH terminou com erro: {}",
-            String::from_utf8_lossy(&saida.stderr)
-        )
-        .into());
-    }
-
-    Ok(String::from_utf8_lossy(&saida.stdout).to_string())
-}
-
-/// CASCA DE IO: pergunta ao host remoto quais containers estão rodando com
-/// status e timestamp de criação (uptime).
-fn listar_containers_remoto(
-    host: &str,
-) -> Result<Vec<ContainerRemoto>, Box<dyn std::error::Error>> {
-    let saida = std::process::Command::new("ssh")
-        .args([
-            host,
-            "docker ps --format '{{.Names}}|{{.Status}}|{{.CreatedAt}}'",
-        ])
-        .output()
-        .map_err(|erro| format!("falha ao conectar via SSH em {host}: {erro}"))?;
-
-    if !saida.status.success() {
-        return Err(format!(
-            "SSH para {host} terminou com erro: {}",
-            String::from_utf8_lossy(&saida.stderr)
-        )
-        .into());
-    }
-
-    Ok(String::from_utf8_lossy(&saida.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|linha| !linha.is_empty())
-        .filter_map(|linha| {
-            let mut partes = linha.splitn(3, '|');
-            Some(ContainerRemoto {
-                nome: partes.next()?.to_string(),
-                status: partes.next()?.to_string(),
-                criado_em: partes.next()?.to_string(),
-            })
-        })
-        .collect())
-}
-
-/// CASCA DE IO: busca as últimas N linhas do log de um container via SSH.
-/// Se `tail` for 0, obtém TODAS as linhas (sem `--tail`).
-fn obter_logs_remoto(
-    host: &str,
-    nome: &str,
-    tail: usize,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let cmd = if tail > 0 {
-        format!("docker logs --tail {tail} {nome}")
-    } else {
-        format!("docker logs {nome}")
-    };
-    let saida = std::process::Command::new("ssh")
-        .args([host, &cmd])
-        .output()
-        .map_err(|erro| format!("falha ao obter logs de '{nome}' via SSH: {erro}"))?;
-
-    if !saida.status.success() {
-        return Err(format!(
-            "'docker logs {nome}' via SSH terminou com erro: {}",
-            String::from_utf8_lossy(&saida.stderr)
-        )
-        .into());
-    }
-
-    Ok(String::from_utf8_lossy(&saida.stdout).to_string())
 }

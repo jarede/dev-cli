@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 
 use rusqlite::Connection;
 
+use crate::core::LoguruEntry;
+use crate::metricas::{p95, ResumoContainer};
+
 /// Cria as tabelas do banco se não existirem e executa migrações.
 // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
 pub fn init_db(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +37,24 @@ pub fn init_db(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
             level TEXT NOT NULL,
             line TEXT NOT NULL,
             collected_at INTEGER NOT NULL
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_name TEXT NOT NULL,
+            ts TEXT NOT NULL,
+            metodo TEXT NOT NULL,
+            path TEXT NOT NULL,
+            status INTEGER NOT NULL,
+            duracao_seg REAL NOT NULL,
+            tenant TEXT NOT NULL,
+            collected_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_requests_container_ts
+            ON requests (container_name, collected_at);
+        CREATE INDEX IF NOT EXISTS idx_log_lines_container_ts
+            ON log_lines (container_name, collected_at);
+        CREATE INDEX IF NOT EXISTS idx_log_counts_container_ts
+            ON log_counts (container_name, collected_at);",
     )?;
 
     // Migração: adiciona colunas que podem não existir em DBs criados antes
@@ -83,19 +103,14 @@ pub fn armazenar_contagens(
 }
 
 /// CASCA DE IO: armazena as linhas de log no banco, agrupadas por nível.
-/// Remove linhas antigas do mesmo container para evitar acúmulo infinito.
+/// A retenção não é mais feita aqui — veja `prune_antigos`, que apaga por
+/// tempo, permitindo somar a janela através de várias coletas.
 pub fn armazenar_linhas(
     conn: &Connection,
     nome: &str,
     grupos: &BTreeMap<String, Vec<String>>,
     agora: i64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Remove linhas antigas deste container (mantém só as últimas coletas)
-    conn.execute(
-        "DELETE FROM log_lines WHERE container_name = ?1",
-        rusqlite::params![nome],
-    )?;
-
     let mut stmt = conn.prepare(
         "INSERT INTO log_lines (container_name, level, line, collected_at) VALUES (?1, ?2, ?3, ?4)",
     )?;
@@ -178,4 +193,213 @@ pub fn verificar_status_containers(
     }
 
     Ok(alertas)
+}
+
+/// Persiste as requests HTTP parseadas (formato Loguru) desta coleta.
+pub fn armazenar_requests(
+    conn: &Connection,
+    nome: &str,
+    entradas: &[LoguruEntry],
+    agora: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Uma statement preparada reutilizada no loop (mais rápido que preparar
+    // SQL novo por linha) — mesmo padrão de `armazenar_contagens`.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.prepare
+    let mut stmt = conn.prepare(
+        "INSERT INTO requests (container_name, ts, metodo, path, status, duracao_seg, tenant, collected_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+    for e in entradas {
+        stmt.execute(rusqlite::params![
+            nome,
+            e.timestamp,
+            e.metodo,
+            e.path,
+            e.status,
+            e.duracao_seg,
+            e.tenant,
+            agora
+        ])?;
+    }
+    Ok(())
+}
+
+/// Apaga dados mais antigos que `corte` (timestamp Unix) — a retenção do
+/// banco. Chamado a cada ciclo de coleta.
+pub fn prune_antigos(conn: &Connection, corte: i64) -> Result<(), Box<dyn std::error::Error>> {
+    conn.execute("DELETE FROM log_lines WHERE collected_at < ?1", rusqlite::params![corte])?;
+    conn.execute("DELETE FROM requests WHERE collected_at < ?1", rusqlite::params![corte])?;
+    conn.execute("DELETE FROM log_counts WHERE collected_at < ?1", rusqlite::params![corte])?;
+    conn.execute("DELETE FROM alerts WHERE created_at < ?1", rusqlite::params![corte])?;
+    Ok(())
+}
+
+/// Monta o resumo por container considerando só a janela `collected_at >= corte`.
+/// Contagens vêm do SQL (rápido); p95/máx são calculados em Rust a partir das
+/// durações da janela (SQLite não tem percentil nativo).
+pub fn resumo_janela(
+    conn: &Connection,
+    corte: i64,
+) -> Result<Vec<ResumoContainer>, Box<dyn std::error::Error>> {
+    // 1. Base: todos os containers conhecidos, com status e última coleta.
+    let mut stmt = conn.prepare(
+        "SELECT name, status, uptime, last_collected_at FROM containers ORDER BY name",
+    )?;
+    let mut resumos: Vec<ResumoContainer> = stmt
+        .query_map([], |r| {
+            Ok(ResumoContainer {
+                nome: r.get(0)?,
+                status: r.get(1)?,
+                uptime: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ultima_coleta: r.get(3)?,
+                ..Default::default()
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    for resumo in &mut resumos {
+        // 2. Contagens por nível na janela (a partir de log_counts).
+        let mut stmt = conn.prepare(
+            "SELECT level, SUM(count) FROM log_counts
+             WHERE container_name = ?1 AND collected_at >= ?2 GROUP BY level",
+        )?;
+        let niveis = stmt.query_map(rusqlite::params![resumo.nome, corte], |r| {
+            let nivel: String = r.get(0)?;
+            let total: i64 = r.get(1)?;
+            Ok((nivel, total))
+        })?;
+        for par in niveis.filter_map(|r| r.ok()) {
+            let (nivel, total) = par;
+            resumo.total_linhas += total;
+            match nivel.to_uppercase().as_str() {
+                "ERROR" | "ERRO" => resumo.erros += total,
+                "CRITICAL" | "CRIT" | "FATAL" => resumo.crits += total,
+                _ => {}
+            }
+        }
+
+        // 3. Requests na janela: contagens por classe de status via SQL...
+        let (reqs, c5xx, c4xx): (i64, i64, i64) = conn.query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(status BETWEEN 500 AND 599), 0),
+                    COALESCE(SUM(status BETWEEN 400 AND 499), 0)
+             FROM requests WHERE container_name = ?1 AND collected_at >= ?2",
+            rusqlite::params![resumo.nome, corte],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        resumo.reqs = reqs;
+        resumo.c5xx = c5xx;
+        resumo.c4xx = c4xx;
+
+        // 4. ...e durações trazidas para o Rust para p95/máx.
+        let mut stmt = conn.prepare(
+            "SELECT duracao_seg FROM requests
+             WHERE container_name = ?1 AND collected_at >= ?2",
+        )?;
+        let duracoes: Vec<f64> = stmt
+            .query_map(rusqlite::params![resumo.nome, corte], |r| r.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        resumo.p95_seg = p95(&duracoes);
+        // `fold` com `f64::max` em vez de `.max()` porque f64 não é `Ord`.
+        // docs: https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.fold
+        resumo.max_seg = if duracoes.is_empty() {
+            None
+        } else {
+            Some(duracoes.iter().fold(f64::MIN, |a, &b| a.max(b)))
+        };
+    }
+
+    Ok(resumos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::parse_loguru_line;
+
+    /// Banco em memória com o schema criado — cada teste parte do zero.
+    // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.open_in_memory
+    fn banco() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn
+    }
+
+    fn inserir_container(conn: &Connection, nome: &str, status: &str, agora: i64) {
+        conn.execute(
+            "INSERT OR REPLACE INTO containers (name, status, last_collected_at, uptime, criado_em)
+             VALUES (?1, ?2, ?3, 'Up 1 day', '')",
+            rusqlite::params![nome, status, agora],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn resumo_janela_agrega_contagens_e_requests() {
+        let conn = banco();
+        inserir_container(&conn, "app", "running", 1000);
+
+        // Contagens: 2 ERROR + 8 INFO dentro da janela, 5 ERROR fora.
+        let mut niveis = std::collections::BTreeMap::new();
+        niveis.insert("ERROR".to_string(), 2usize);
+        niveis.insert("INFO".to_string(), 8usize);
+        armazenar_contagens(&conn, "app", &niveis, 1000).unwrap();
+        let mut antigos = std::collections::BTreeMap::new();
+        antigos.insert("ERROR".to_string(), 5usize);
+        armazenar_contagens(&conn, "app", &antigos, 10).unwrap();
+
+        // Uma request 200 e uma 500 dentro da janela (linha Loguru real).
+        let linha = "2026-07-07 10:00:00.000 |INFO     | server:http_request:112 - [acme] GET 200 /api/x  0.150s [10.0.0.1] [curl]";
+        let e200 = parse_loguru_line(linha).unwrap();
+        let mut e500 = e200.clone();
+        e500.status = 500;
+        e500.duracao_seg = 2.0;
+        armazenar_requests(&conn, "app", &[e200, e500], 1000).unwrap();
+
+        let resumos = resumo_janela(&conn, 500).unwrap();
+        assert_eq!(resumos.len(), 1);
+        let r = &resumos[0];
+        assert_eq!(r.nome, "app");
+        assert_eq!(r.erros, 2); // os 5 antigos ficaram fora da janela
+        assert_eq!(r.total_linhas, 10);
+        assert_eq!(r.reqs, 2);
+        assert_eq!(r.c5xx, 1);
+        assert_eq!(r.c4xx, 0);
+        assert_eq!(r.max_seg, Some(2.0));
+    }
+
+    #[test]
+    fn prune_remove_somente_o_antigo() {
+        let conn = banco();
+        inserir_container(&conn, "app", "running", 1000);
+        let mut niveis = std::collections::BTreeMap::new();
+        niveis.insert("INFO".to_string(), 1usize);
+        armazenar_contagens(&conn, "app", &niveis, 100).unwrap();
+        armazenar_contagens(&conn, "app", &niveis, 900).unwrap();
+
+        prune_antigos(&conn, 500).unwrap();
+
+        let restantes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM log_counts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(restantes, 1);
+    }
+
+    #[test]
+    fn armazenar_linhas_acumula_entre_coletas() {
+        let conn = banco();
+        let mut grupos = std::collections::BTreeMap::new();
+        grupos.insert("INFO".to_string(), vec!["linha 1".to_string()]);
+        armazenar_linhas(&conn, "app", &grupos, 100).unwrap();
+        armazenar_linhas(&conn, "app", &grupos, 200).unwrap();
+
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM log_lines", [], |r| r.get(0))
+            .unwrap();
+        // Antes esta função APAGAVA as linhas anteriores; agora acumula
+        // (a retenção é por tempo, via prune_antigos).
+        assert_eq!(total, 2);
+    }
 }

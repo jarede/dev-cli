@@ -3,7 +3,7 @@
 # docs: https://doc.rust-lang.org/cargo/reference/workspaces.html
 [workspace]
 resolver = "3"
-members = ["crates/nucleo", "crates/cli"]
+members = ["crates/nucleo", "crates/cli", "crates/servidor"]
 
 # Campos herdados pelos crates com `.workspace = true` (evita repetir
 # versão/edition em cada Cargo.toml).
@@ -18,10 +18,12 @@ repository = "https://github.com/jarede/dev-cli"
 # `dep.workspace = true`, garantindo UMA versão única no workspace inteiro.
 # docs: https://doc.rust-lang.org/cargo/reference/workspaces.html#the-dependencies-table
 [workspace.dependencies]
+axum = "0.8"
 chrono = "0.4"
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.28"
 dirs = "6"
+http-body-util = "0.1"
 dotenvy = "0.15"
 owo-colors = "4"
 ratatui = "0.29"
@@ -30,5 +32,8 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.9"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
 walkdir = "2.5"
 nucleo = { path = "crates/nucleo" }

@@ -3,6 +3,7 @@
 // permite testar 100% dos caminhos com dados inline.
 
 use crate::config::Limiares;
+use serde::Serialize;
 
 /// Percentil 95 das durações (segundos). `None` para lista vazia.
 /// Método "nearest-rank": ordena e pega o elemento na posição
@@ -28,7 +29,10 @@ pub fn p95(duracoes: &[f64]) -> Option<f64> {
 }
 
 /// Tudo que o dashboard mostra sobre um container, já agregado na janela.
-#[derive(Debug, Clone, Default)]
+// `Serialize`: a Fase 2 (dev-server) devolve esta struct como JSON sem DTO
+// intermediário — os nomes dos campos viram as chaves do JSON.
+// docs: https://serde.rs/derive.html
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ResumoContainer {
     pub nome: String,
     /// "running" ou "stopped" (coluna `status` da tabela containers).
@@ -60,7 +64,7 @@ pub struct ResumoContainer {
 // declaração, então Verde < Amarelo < Vermelho < Parado — o dashboard
 // ordena decrescente para pôr os piores no topo.
 // docs: https://doc.rust-lang.org/std/cmp/trait.Ord.html#derivable
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum Severidade {
     Verde,
     Amarelo,
@@ -206,5 +210,16 @@ mod tests {
         assert!(Severidade::Verde < Severidade::Amarelo);
         assert!(Severidade::Amarelo < Severidade::Vermelho);
         assert!(Severidade::Vermelho < Severidade::Parado);
+    }
+
+    #[test]
+    fn resumo_e_severidade_serializam_para_json() {
+        // A API da Fase 2 devolve essas structs direto como JSON — este
+        // teste trava o formato (nomes de campo em pt-br, enum como string).
+        let json = serde_json::to_value(resumo_saudavel()).unwrap();
+        assert_eq!(json["nome"], "app");
+        assert_eq!(json["status"], "running");
+        assert_eq!(json["p95_seg"], 0.2);
+        assert_eq!(serde_json::to_value(Severidade::Parado).unwrap(), "Parado");
     }
 }

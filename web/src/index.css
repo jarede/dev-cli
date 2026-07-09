@@ -1,3 +1,15 @@
+:root {
+  --fundo: #0f1115;
+  --painel: #171a21;
+  --borda: #262b36;
+  --texto: #d7dae0;
+  --texto-fraco: #8a90a0;
+  --verde: #4caf50;
+  --amarelo: #e6b450;
+  --vermelho: #e05252;
+  --parado: #9aa0b0;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -6,6 +18,140 @@
 
 body {
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
-  background: #0f1115;
-  color: #d7dae0;
+  background: var(--fundo);
+  color: var(--texto);
+  padding: 1.5rem;
+}
+
+.cabecalho {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.cabecalho h1 {
+  font-size: 1.1rem;
+}
+
+.cabecalho .resumo {
+  color: var(--texto-fraco);
+  font-size: 0.85rem;
+}
+
+.erro-conexao {
+  background: color-mix(in srgb, var(--vermelho) 20%, var(--painel));
+  border: 1px solid var(--vermelho);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.tabela-containers {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+.tabela-containers th,
+.tabela-containers td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--borda);
+}
+
+.tabela-containers th {
+  color: var(--texto-fraco);
+  font-weight: normal;
+  text-transform: lowercase;
+}
+
+.tabela-containers tbody tr {
+  cursor: pointer;
+}
+
+.tabela-containers tbody tr:hover {
+  background: color-mix(in srgb, var(--borda) 50%, var(--painel));
+}
+
+.tabela-containers tr.selecionada {
+  background: color-mix(in srgb, var(--borda) 80%, var(--painel));
+}
+
+.bolinha {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+}
+
+.vazio {
+  color: var(--texto-fraco);
+  padding: 1rem;
+}
+
+.painel-container {
+  margin-top: 1rem;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.painel-container .barra {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.painel-container select {
+  background: var(--fundo);
+  color: var(--texto);
+  border: 1px solid var(--borda);
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  font: inherit;
+}
+
+.painel-container button {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--borda);
+  border-radius: 4px;
+  color: var(--texto-fraco);
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.linhas-log {
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+  font-size: 0.78rem;
+}
+
+.linhas-log li {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--borda) 40%, transparent);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.alertas {
+  list-style: none;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.alertas li {
+  padding: 0.25rem 0;
+  color: var(--amarelo);
 }

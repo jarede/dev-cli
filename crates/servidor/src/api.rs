@@ -13,7 +13,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use nucleo::coletor::agora_unix;
 use nucleo::config::Config;
-use nucleo::db::resumo_janela;
+use nucleo::db::{alertas_recentes, carregar_linhas_janela, resumo_janela, Alerta, LinhaLog};
 use nucleo::metricas::{severidade, ResumoContainer, Severidade};
 
 /// Estado compartilhado entre todos os handlers da API.
@@ -43,6 +43,11 @@ pub fn criar_rotas(estado: EstadoApi) -> Router {
     Router::new()
         .route("/api/saude", get(saude))
         .route("/api/containers", get(listar_containers))
+        // `{nome}` é a sintaxe de path param do axum 0.8 (era `:nome` até
+        // o 0.7) — o valor chega no handler pelo extractor `Path`.
+        // docs: https://docs.rs/axum/latest/axum/extract/struct.Path.html
+        .route("/api/containers/{nome}/linhas", get(listar_linhas))
+        .route("/api/alertas", get(listar_alertas))
         // `.with_state`: injeta o estado; os handlers o recebem via o
         // extractor `State<EstadoApi>`.
         .with_state(estado)
@@ -114,6 +119,53 @@ async fn listar_containers(
             .then(a.resumo.nome.cmp(&b.resumo.nome))
     });
     Ok(Json(lista))
+}
+
+/// Query string de `/api/containers/{nome}/linhas`.
+#[derive(Deserialize)]
+struct ParamsLinhas {
+    nivel: Option<String>,
+    limite: Option<usize>,
+    janela_min: Option<u64>,
+}
+
+/// GET /api/containers/{nome}/linhas — drill-down: as linhas de log cruas
+/// do container na janela (equivalente à tela de linhas da TUI).
+async fn listar_linhas(
+    State(estado): State<EstadoApi>,
+    Path(nome): Path<String>,
+    Query(params): Query<ParamsLinhas>,
+) -> Result<Json<Vec<LinhaLog>>, (StatusCode, String)> {
+    let janela_min = params.janela_min.unwrap_or(estado.config.coleta.janela_min);
+    let corte = agora_unix() - (janela_min as i64) * 60;
+    let limite = params.limite.unwrap_or(100);
+
+    let conn = estado.db.lock().map_err(erro_interno)?;
+    // `as_deref()`: Option<String> -> Option<&str>, emprestando sem clonar.
+    // docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.as_deref
+    let linhas = carregar_linhas_janela(&conn, &nome, params.nivel.as_deref(), corte, limite)
+        .map_err(erro_interno)?;
+    Ok(Json(linhas))
+}
+
+/// Query string de `/api/alertas`.
+#[derive(Deserialize)]
+struct ParamsAlertas {
+    limite: Option<usize>,
+}
+
+/// GET /api/alertas — containers que pararam/reiniciaram dentro do período
+/// de retenção do banco (o prune apaga o que for mais velho que isso).
+async fn listar_alertas(
+    State(estado): State<EstadoApi>,
+    Query(params): Query<ParamsAlertas>,
+) -> Result<Json<Vec<Alerta>>, (StatusCode, String)> {
+    let corte = agora_unix() - (estado.config.coleta.retencao_horas as i64) * 3600;
+    let limite = params.limite.unwrap_or(100);
+
+    let conn = estado.db.lock().map_err(erro_interno)?;
+    let alertas = alertas_recentes(&conn, corte, limite).map_err(erro_interno)?;
+    Ok(Json(alertas))
 }
 
 /// Converte qualquer erro exibível numa resposta 500 com a mensagem no
@@ -211,5 +263,55 @@ mod tests {
         assert_eq!(lista[0]["crits"], 10);
         assert_eq!(lista[1]["nome"], "zen");
         assert_eq!(lista[1]["severidade"], "Verde");
+    }
+
+    #[tokio::test]
+    async fn linhas_filtra_por_nivel_do_container() {
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            conn.execute(
+                "INSERT INTO log_lines (container_name, level, line, collected_at)
+                 VALUES ('app', 'ERROR', 'deu ruim', ?1),
+                        ('app', 'INFO', 'tudo bem', ?1)",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+        }
+
+        let rotas = criar_rotas(estado);
+        let (status, json) =
+            get_json(rotas.clone(), "/api/containers/app/linhas?nivel=ERROR").await;
+        assert_eq!(status, StatusCode::OK);
+        let lista = json.as_array().unwrap();
+        assert_eq!(lista.len(), 1);
+        assert_eq!(lista[0]["linha"], "deu ruim");
+
+        // Sem filtro: as duas linhas.
+        let (_, json) = get_json(rotas, "/api/containers/app/linhas").await;
+        assert_eq!(json.as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn alertas_recentes_saem_no_json() {
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            conn.execute(
+                "INSERT INTO alerts (container_name, alert_type, message, created_at)
+                 VALUES ('app', 'stopped', 'Container parou', ?1)",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+        }
+
+        let (status, json) = get_json(criar_rotas(estado), "/api/alertas").await;
+        assert_eq!(status, StatusCode::OK);
+        let lista = json.as_array().unwrap();
+        assert_eq!(lista.len(), 1);
+        assert_eq!(lista[0]["container"], "app");
+        assert_eq!(lista[0]["tipo"], "stopped");
     }
 }

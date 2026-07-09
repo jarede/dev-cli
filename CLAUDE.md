@@ -9,7 +9,9 @@ canivete suíço para tarefas de desenvolvimento. É um workspace Cargo com
 `crates/nucleo` (lib: parse, métricas, coleta docker/SSH, SQLite) e
 `crates/cli` (bin `dev-cli`: clap + dashboard TUI em ratatui) e
 `crates/servidor` (bin `dev-server`: axum, coleta contínua + API JSON;
-deploy systemd em `deploy/`).
+deploy systemd em `deploy/`). Um portal web (React + Vite + TypeScript) vive
+em `web/` e consome a API do dev-server; em produção o próprio dev-server
+serve o build (`servidor.portal_dir`).
 
 É um **projeto de aprendizado**: o objetivo é ganhar fluência em Rust
 construindo uma ferramenta real, em iterações pequenas. Por isso o código é
@@ -33,6 +35,9 @@ cargo build --release       # binário em target/release/dev-cli
 cargo test --workspace      # roda a suíte inteira (crates/nucleo + crates/cli)
 cargo test contar           # roda testes cujo nome casa com "contar"
 cargo clippy --workspace    # clippy no workspace inteiro (rode antes de dar por pronto — ver abaixo)
+cd web && npm install && npm run dev   # portal web em dev (proxy /api -> dev-server)
+cd web && npm test                     # testes do portal (vitest)
+cd web && npm run build                # build de produção em web/dist
 ```
 
 **Antes de considerar uma mudança pronta, rode `cargo clippy --workspace` —
@@ -82,6 +87,13 @@ Workspace com três crates. Dispatch por `execute()` que retorna
   `/api/alertas`); `main.rs` faz config -> coletor -> serve com graceful
   shutdown. `deploy/` tem a unit systemd e o `instalar.sh` (RHEL, usuário
   `dev-cli` no grupo docker).
+- **`web/`** — portal React + Vite + TS (fora do workspace Cargo). SPA sem
+  router: `App.tsx` faz polling de 15s em `/api/containers` e `/api/alertas`
+  (`api.ts` é o cliente fetch; `tipos.ts` espelha o JSON da API — mudou a
+  API, mude os dois). Componentes apresentacionais em `src/componentes/`;
+  testes com vitest + testing-library (`npm test`). Em dev o Vite faz proxy
+  de `/api` para 127.0.0.1:8787; em produção o dev-server serve `web/dist`
+  via `servidor.portal_dir`.
 
 ## Convenções
 
@@ -103,6 +115,10 @@ Workspace com três crates. Dispatch por `execute()` que retorna
   `crates/nucleo` separada da casca de IO — ver `crates/nucleo/src/core.rs`.
 - **Testes não dependem de `dados/`** (fixtures de log; gitignored, some em
   clones) — use strings inline. `dados/` e `/target` estão no `.gitignore`.
+- **Web (`web/`)**: mesmas regras de pt-br e comentários didáticos (com
+  links MDN/react.dev). Sem dependências novas além de react/react-dom +
+  vitest/testing-library sem discussão prévia. Rodar `npm test` e
+  `npm run build` antes de dar por pronto.
 
 ## Git
 

@@ -110,6 +110,25 @@ curl -s "localhost:8787/api/containers/NOME/linhas?nivel=ERROR&limite=50"
 curl -s localhost:8787/api/alertas
 ```
 
+## Portal web
+
+Dashboard no navegador, servido pelo próprio dev-server em produção.
+
+```bash
+# desenvolvimento (dois terminais):
+cargo run -p servidor -- --db /tmp/dev.db   # API em 127.0.0.1:8787
+cd web && npm install && npm run dev        # portal em localhost:5173 (proxy /api)
+
+# produção (um binário só):
+cd web && npm run build
+cargo run -p servidor -- --portal-dir web/dist
+# abra http://127.0.0.1:8787 — portal e API na mesma porta
+```
+
+Na VM: copie o build (`rsync -av web/dist/ vm:/var/lib/dev-cli/portal/`) e
+configure `portal_dir = "/var/lib/dev-cli/portal"` no
+`/etc/dev-cli/config.toml`.
+
 ### Rodando como serviço (RHEL/systemd)
 
 Na VM que tem o docker, como root:

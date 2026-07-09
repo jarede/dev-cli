@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `dev-cli` é uma CLI em Rust (edition 2024 — exige toolchain recente) — um
 canivete suíço para tarefas de desenvolvimento. É um workspace Cargo com
 `crates/nucleo` (lib: parse, métricas, coleta docker/SSH, SQLite) e
-`crates/cli` (bin `dev-cli`: clap + dashboard TUI em ratatui). Uma
-`crates/servidor` (axum) está prevista para a Fase 2.
+`crates/cli` (bin `dev-cli`: clap + dashboard TUI em ratatui) e
+`crates/servidor` (bin `dev-server`: axum, coleta contínua + API JSON;
+deploy systemd em `deploy/`).
 
 É um **projeto de aprendizado**: o objetivo é ganhar fluência em Rust
 construindo uma ferramenta real, em iterações pequenas. Por isso o código é
@@ -27,6 +28,7 @@ cargo run -p dev-cli -- logs dashboard              # dashboard TUI ao vivo (doc
 cargo run -p dev-cli -- logs dashboard --ssh user@host   # idem, coletando via SSH
 cargo run -p dev-cli -- ai stats opencode   # dashboard de tokens/custo do OpenCode (heatmap + modelos)
 cargo run -p dev-cli -- ai stats claude     # horas trabalhadas + custo estimado do Claude Code (mês atual)
+cargo run -p servidor -- --db /tmp/dev.db   # dev-server: coleta + API JSON em 127.0.0.1:8787
 cargo build --release       # binário em target/release/dev-cli
 cargo test --workspace      # roda a suíte inteira (crates/nucleo + crates/cli)
 cargo test contar           # roda testes cujo nome casa com "contar"
@@ -73,6 +75,13 @@ Workspace com dois crates. Dispatch por `execute()` que retorna
   - `tui.rs` + `screens/` — telas ratatui empilhadas (`Screen` trait); o
     dashboard (`screens/dashboard.rs`) é a tela inicial de `logs dashboard` e
     reage à coleta ao vivo via canal mpsc.
+- **`crates/servidor`** — bin `dev-server` (Fase 2): a mesma thread coletora
+  do dashboard (`nucleo::coletor`) + API JSON em axum lendo o mesmo SQLite
+  (WAL; conexão da API atrás de `Arc<Mutex<...>>`). Rotas em `api.rs`
+  (`/api/saude`, `/api/containers`, `/api/containers/{nome}/linhas`,
+  `/api/alertas`); `main.rs` faz config -> coletor -> serve com graceful
+  shutdown. `deploy/` tem a unit systemd e o `instalar.sh` (RHEL, usuário
+  `dev-cli` no grupo docker).
 
 ## Convenções
 

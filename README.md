@@ -95,6 +95,35 @@ cargo build --release
 ./target/release/dev-cli --help
 ```
 
+## dev-server (API JSON)
+
+O `dev-server` roda a mesma coleta contínua do dashboard e expõe os dados
+via API JSON — é o backend do futuro portal web (Fase 3).
+
+```bash
+cargo run -p servidor                      # docker local, API em 127.0.0.1:8787
+cargo run -p servidor -- --ssh user@host   # coletando de uma VM via SSH (dev)
+
+curl -s localhost:8787/api/saude
+curl -s "localhost:8787/api/containers?janela_min=60"
+curl -s "localhost:8787/api/containers/NOME/linhas?nivel=ERROR&limite=50"
+curl -s localhost:8787/api/alertas
+```
+
+### Rodando como serviço (RHEL/systemd)
+
+Na VM que tem o docker, como root:
+
+```bash
+cargo build --release
+sudo ./deploy/instalar.sh
+```
+
+O serviço roda como o usuário de sistema `dev-cli` (sem privilégios, apenas
+membro do grupo `docker`), com config em `/etc/dev-cli/config.toml` e banco
+em `/var/lib/dev-cli/logs.db`. Tudo é configurável por TOML e variáveis
+`DEV_CLI_*` — veja `deploy/config.exemplo.toml`.
+
 ## 🧪 Testes
 
 ```bash

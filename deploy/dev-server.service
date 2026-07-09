@@ -1,0 +1,37 @@
+# Unit systemd do dev-server (dev-cli, Fase 2).
+# Instalada pelo deploy/instalar.sh em /etc/systemd/system/dev-server.service.
+#
+# Modelo de segurança: o serviço roda como o usuário de sistema `dev-cli`,
+# SEM privilégios — o único poder extra é o grupo `docker` (necessário para
+# `docker ps`/`docker logs` falarem com /var/run/docker.sock).
+
+[Unit]
+Description=dev-server — coleta de logs de containers + API JSON (dev-cli)
+Documentation=https://github.com/jarede/dev-cli
+# Só sobe depois da rede e do docker estarem de pé.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dev-cli
+Group=dev-cli
+# O grupo docker entra como suplementar: o usuário continua "comum".
+SupplementaryGroups=docker
+ExecStart=/usr/local/bin/dev-server --config /etc/dev-cli/config.toml
+Restart=on-failure
+RestartSec=5
+
+# StateDirectory: o systemd cria /var/lib/dev-cli com dono dev-cli — é onde
+# o config.exemplo.toml aponta o SQLite (db = "/var/lib/dev-cli/logs.db").
+StateDirectory=dev-cli
+
+# Endurecimento básico: sem escalada de privilégio, /usr e /etc read-only,
+# /home inacessível, /tmp privado. (O socket do docker continua acessível.)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

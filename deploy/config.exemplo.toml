@@ -1,0 +1,23 @@
+# Configuração do dev-cli / dev-server.
+# Precedência: flags CLI > env DEV_CLI_* > este arquivo > defaults.
+# Instalada pelo deploy/instalar.sh em /etc/dev-cli/config.toml.
+
+[coleta]
+intervalo_seg = 60
+janela_min = 15
+retencao_horas = 24
+tail_inicial = 1000
+# Na VM, o banco fica no StateDirectory criado pelo systemd:
+db = "/var/lib/dev-cli/logs.db"
+# Vazio = docker local (modo padrão na VM).
+# "user@host" = coleta via SSH (uso em desenvolvimento).
+ssh = ""
+
+[limiares]
+p95_lento_seg = 1.0
+taxa_erro_pct = 5.0
+
+[servidor]
+# A API escuta só em localhost por padrão; para expor, prefira um proxy
+# reverso (nginx) ou mude conscientemente para "0.0.0.0:8787".
+bind = "127.0.0.1:8787"

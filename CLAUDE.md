@@ -46,7 +46,7 @@ pre-commit configurados — siga o estilo do arquivo que edita.
 
 ## Arquitetura
 
-Workspace com dois crates. Dispatch por `execute()` que retorna
+Workspace com três crates. Dispatch por `execute()` que retorna
 `Result<String, Box<dyn Error>>`:
 
 - **`crates/nucleo`** — lib sem NENHUMA dependência de terminal

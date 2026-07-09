@@ -21,7 +21,7 @@ repository = "https://github.com/jarede/dev-cli"
 axum = "0.8"
 chrono = "0.4"
 clap = { version = "4.6.1", features = ["derive"] }
-crossterm = "0.28"
+crossterm = "0.29"
 dirs = "6"
 http-body-util = "0.1"
 dotenvy = "0.15"

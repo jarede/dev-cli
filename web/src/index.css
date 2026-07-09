@@ -1,3 +1,7 @@
+/* Tema escuro do portal — as cores de severidade são as mesmas semânticas
+   do dashboard TUI (verde/amarelo/vermelho/parado). Variáveis CSS em
+   :root para todos os componentes usarem via var(--nome).
+   docs: https://developer.mozilla.org/docs/Web/CSS/Using_CSS_custom_properties */
 :root {
   --fundo: #0f1115;
   --painel: #171a21;

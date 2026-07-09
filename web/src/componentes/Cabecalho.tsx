@@ -1,9 +1,17 @@
+// Cabeçalho do portal: título + resumo global (problemas/containers/
+// reqs/erros na janela) + banner de erro quando a API está fora.
+// Os agregados são DERIVADOS das props a cada render — sem useState:
+// estado derivado não se armazena, se calcula.
+// docs: https://react.dev/learn/you-might-not-need-an-effect#updating-state-based-on-props-or-state
+
 import type { ContainerResumo } from '../tipos'
 import { formatarHaQuanto, formatarNumero } from '../formato'
 
 interface Props {
   containers: ContainerResumo[]
+  /** Mensagem de erro da última busca; null = tudo bem. */
   erro: string | null
+  /** Date.now() da última busca bem-sucedida; null = nenhuma ainda. */
   atualizadoEm: number | null
 }
 

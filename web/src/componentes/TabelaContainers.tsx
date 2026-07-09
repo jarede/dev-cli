@@ -1,3 +1,10 @@
+// A tabela do dashboard: containers JÁ ordenados pela API (piores
+// primeiro) — este componente só APRESENTA. Selecionar uma linha abre o
+// drill-down (PainelContainer, Task 4) via callback do pai.
+// Componente "burro"/apresentacional: recebe tudo por props, não busca
+// dados — o que o torna trivial de testar.
+// docs: https://react.dev/learn/passing-props-to-a-component
+
 import type { ContainerResumo, Severidade } from '../tipos'
 import { formatarNumero, formatarSegundos } from '../formato'
 
@@ -7,6 +14,10 @@ interface Props {
   aoSelecionar: (nome: string) => void
 }
 
+/// Cor de cada severidade (variáveis do index.css).
+/// Record<K, V>: objeto com TODAS as chaves de Severidade — o TS acusa se
+/// uma variante nova ficar sem cor.
+/// docs: https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type
 const COR_SEVERIDADE: Record<Severidade, string> = {
   Verde: 'var(--verde)',
   Amarelo: 'var(--amarelo)',
@@ -37,6 +48,9 @@ export function TabelaContainers({ containers, selecionado, aoSelecionar }: Prop
       </thead>
       <tbody>
         {containers.map((c) => (
+          // `key`: identidade estável de cada linha para o React
+          // reconciliar a lista sem recriar DOM à toa.
+          // docs: https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key
           <tr
             key={c.nome}
             className={c.nome === selecionado ? 'selecionada' : ''}

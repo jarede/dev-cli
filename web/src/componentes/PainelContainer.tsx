@@ -1,7 +1,15 @@
+// Drill-down de um container: as linhas de log cruas da janela, com filtro
+// por nível — o equivalente web da tela de linhas da TUI.
+// Este componente é "inteligente": busca os próprios dados via useEffect
+// quando `nome` ou `nivel` mudam (as dependências do effect).
+// docs: https://react.dev/reference/react/useEffect
+
 import { useEffect, useState } from 'react'
 import { buscarLinhas } from '../api'
 import type { LinhaLog } from '../tipos'
 
+/// Níveis oferecidos no filtro ('' = todos). Lista fixa: os níveis do
+/// Loguru/parse do nucleo, não vale a pena descobrir dinamicamente.
 const NIVEIS = ['', 'CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'] as const
 
 interface Props {
@@ -15,6 +23,10 @@ export function PainelContainer({ nome, aoFechar }: Props) {
   const [erro, setErro] = useState<string | null>(null)
 
   useEffect(() => {
+    // Flag de "ainda interessa": se o componente desmontar (ou nome/nivel
+    // mudarem) antes da resposta chegar, o cleanup vira a flag e o
+    // setState atrasado é ignorado — evita atualizar componente morto.
+    // docs: https://react.dev/reference/react/useEffect#fetching-data-with-effects
     let ativo = true
     buscarLinhas(nome, nivel || undefined)
       .then((novas) => {

@@ -22,7 +22,8 @@ describe('formatarNumero', () => {
 })
 
 describe('formatarHaQuanto', () => {
-  const agora = 1_000_000_000 * 1000
+  // agoraMs fixo: teste determinístico, sem depender do relógio real.
+  const agora = 1_000_000_000 * 1000 // ts unix 1_000_000_000 em ms
 
   it('segundos, minutos e horas', () => {
     expect(formatarHaQuanto(1_000_000_000 - 12, agora)).toBe('há 12s')

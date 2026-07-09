@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buscarAlertas, buscarContainers, buscarLinhas } from './api'
 
+/// Uma Response de sucesso com corpo JSON (o objeto Response do fetch
+/// existe no jsdom/node moderno — não precisa de mock de biblioteca).
 function respostaJson(corpo: unknown): Response {
   return new Response(JSON.stringify(corpo), {
     status: 200,
@@ -9,6 +11,9 @@ function respostaJson(corpo: unknown): Response {
 }
 
 describe('cliente da API', () => {
+  // `vi.stubGlobal` troca o fetch global só dentro do teste;
+  // `unstubAllGlobals` desfaz para não vazar entre testes.
+  // docs: https://vitest.dev/api/vi.html#vi-stubglobal
   afterEach(() => vi.unstubAllGlobals())
 
   it('buscarContainers chama /api/containers e devolve o JSON', async () => {

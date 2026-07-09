@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { TabelaContainers } from './TabelaContainers'
 import type { ContainerResumo } from '../tipos'
 
+/// Fábrica de container para os testes — só sobrescreve o que importa.
 function container(parcial: Partial<ContainerResumo>): ContainerResumo {
   return {
     nome: 'app',

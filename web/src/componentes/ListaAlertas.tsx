@@ -1,3 +1,6 @@
+// Alertas recentes (containers que pararam/reiniciaram) — apresentacional:
+// a App busca os dados; sem alertas, não ocupa espaço nenhum.
+
 import type { Alerta } from '../tipos'
 import { formatarHaQuanto } from '../formato'
 

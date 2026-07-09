@@ -9,7 +9,7 @@ use std::time::Duration;
 use clap::Args;
 use rusqlite::Connection;
 
-use nucleo::coletor::{iniciar_coletor, ComandoColetor, ParametrosColetor};
+use nucleo::coletor::{ComandoColetor, ParametrosColetor, iniciar_coletor};
 use nucleo::config::Config;
 use nucleo::db::init_db;
 use nucleo::executor::Executor;

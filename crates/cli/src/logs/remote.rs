@@ -22,11 +22,13 @@ use clap::Args;
 use owo_colors::OwoColorize;
 use rusqlite::Connection;
 
-use nucleo::core::{categorizar_por_nivel, contar_niveis_docker};
-use nucleo::db::{armazenar_contagens, armazenar_linhas, init_db, verificar_status_containers};
-use nucleo::executor::{ContainerDocker, Executor, listar_containers, obter_logs, obter_logs_desde};
 use crate::logs::render::exibir_estatisticas;
 use crate::logs::render::renderizar_container;
+use nucleo::core::{categorizar_por_nivel, contar_niveis_docker};
+use nucleo::db::{armazenar_contagens, armazenar_linhas, init_db, verificar_status_containers};
+use nucleo::executor::{
+    ContainerDocker, Executor, listar_containers, obter_logs, obter_logs_desde,
+};
 
 /// Estatísticas de logs de containers via SSH (executa `docker logs` no host remoto).
 #[derive(Args, Debug)]

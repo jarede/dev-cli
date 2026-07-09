@@ -84,11 +84,8 @@ pub struct ContainerDocker {
 pub fn listar_containers(
     executor: &Executor,
 ) -> Result<Vec<ContainerDocker>, Box<dyn std::error::Error>> {
-    let saida = executor.executar(&[
-        "ps",
-        "--format",
-        "'{{.Names}}|{{.Status}}|{{.CreatedAt}}'",
-    ])?;
+    let saida =
+        executor.executar(&["ps", "--format", "'{{.Names}}|{{.Status}}|{{.CreatedAt}}'"])?;
     Ok(parsear_ps(&saida))
 }
 

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use rusqlite::Connection;
 
 use crate::core::LoguruEntry;
-use crate::metricas::{p95, ResumoContainer};
+use crate::metricas::{ResumoContainer, p95};
 
 /// Cria as tabelas do banco se não existirem e executa migrações.
 // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
@@ -227,10 +227,22 @@ pub fn armazenar_requests(
 /// Apaga dados mais antigos que `corte` (timestamp Unix) — a retenção do
 /// banco. Chamado a cada ciclo de coleta.
 pub fn prune_antigos(conn: &Connection, corte: i64) -> Result<(), Box<dyn std::error::Error>> {
-    conn.execute("DELETE FROM log_lines WHERE collected_at < ?1", rusqlite::params![corte])?;
-    conn.execute("DELETE FROM requests WHERE collected_at < ?1", rusqlite::params![corte])?;
-    conn.execute("DELETE FROM log_counts WHERE collected_at < ?1", rusqlite::params![corte])?;
-    conn.execute("DELETE FROM alerts WHERE created_at < ?1", rusqlite::params![corte])?;
+    conn.execute(
+        "DELETE FROM log_lines WHERE collected_at < ?1",
+        rusqlite::params![corte],
+    )?;
+    conn.execute(
+        "DELETE FROM requests WHERE collected_at < ?1",
+        rusqlite::params![corte],
+    )?;
+    conn.execute(
+        "DELETE FROM log_counts WHERE collected_at < ?1",
+        rusqlite::params![corte],
+    )?;
+    conn.execute(
+        "DELETE FROM alerts WHERE created_at < ?1",
+        rusqlite::params![corte],
+    )?;
     Ok(())
 }
 
@@ -279,8 +291,10 @@ pub fn carregar_linhas_janela(
              WHERE container_name = ?1 AND level = ?2 AND collected_at >= ?3
              ORDER BY collected_at DESC, id DESC LIMIT ?4",
         )?;
-        let linhas =
-            stmt.query_map(rusqlite::params![nome, nivel, corte, limite as i64], mapear_linha)?;
+        let linhas = stmt.query_map(
+            rusqlite::params![nome, nivel, corte, limite as i64],
+            mapear_linha,
+        )?;
         resultado.extend(linhas.filter_map(|r| r.ok()));
     } else {
         let mut stmt = conn.prepare(
@@ -288,8 +302,7 @@ pub fn carregar_linhas_janela(
              WHERE container_name = ?1 AND collected_at >= ?2
              ORDER BY collected_at DESC, id DESC LIMIT ?3",
         )?;
-        let linhas =
-            stmt.query_map(rusqlite::params![nome, corte, limite as i64], mapear_linha)?;
+        let linhas = stmt.query_map(rusqlite::params![nome, corte, limite as i64], mapear_linha)?;
         resultado.extend(linhas.filter_map(|r| r.ok()));
     }
     Ok(resultado)
@@ -334,9 +347,8 @@ pub fn resumo_janela(
     corte: i64,
 ) -> Result<Vec<ResumoContainer>, Box<dyn std::error::Error>> {
     // 1. Base: todos os containers conhecidos, com status e última coleta.
-    let mut stmt = conn.prepare(
-        "SELECT name, status, uptime, last_collected_at FROM containers ORDER BY name",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT name, status, uptime, last_collected_at FROM containers ORDER BY name")?;
     let mut resumos: Vec<ResumoContainer> = stmt
         .query_map([], |r| {
             Ok(ResumoContainer {

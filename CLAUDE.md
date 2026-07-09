@@ -45,9 +45,9 @@ não só `cargo test`.** O usuário usa clippy no editor (LazyVim/rust-analyzer)
 e o CI falha em warnings, então código com warning de clippy conta como
 incompleto.
 
-CI (`.github/workflows/rust.yml`) roda `cargo build`, `cargo test` e
-`cargo clippy -- -D warnings` em push/PR na `main`. Não há rustfmt nem
-pre-commit configurados — siga o estilo do arquivo que edita.
+CI (`.github/workflows/rust.yml`) roda `cargo fmt --check`, `cargo build`,
+`cargo test` e `cargo clippy -- -D warnings` em push/PR na `main`. Rode
+`cargo fmt --all` antes de commitar — código fora do rustfmt quebra o CI.
 
 ## Arquitetura
 

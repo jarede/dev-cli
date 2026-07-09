@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 
 use nucleo::coletor::agora_unix;
 use nucleo::config::Config;
-use nucleo::db::{alertas_recentes, carregar_linhas_janela, resumo_janela, Alerta, LinhaLog};
-use nucleo::metricas::{severidade, ResumoContainer, Severidade};
+use nucleo::db::{Alerta, LinhaLog, alertas_recentes, carregar_linhas_janela, resumo_janela};
+use nucleo::metricas::{ResumoContainer, Severidade, severidade};
 
 /// Estado compartilhado entre todos os handlers da API.
 // `#[derive(Clone)]`: o axum clona o estado para cada handler; `Arc` faz o
@@ -299,8 +299,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("index.html"), "<h1>portal</h1>").unwrap();
 
-        let rotas = criar_rotas(estado_teste())
-            .fallback_service(tower_http::services::ServeDir::new(&dir));
+        let rotas =
+            criar_rotas(estado_teste()).fallback_service(tower_http::services::ServeDir::new(&dir));
 
         let resposta = rotas
             .clone()

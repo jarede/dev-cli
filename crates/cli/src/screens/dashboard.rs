@@ -13,17 +13,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossterm::event::KeyCode;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
-    Frame,
 };
 use rusqlite::Connection;
 
 use nucleo::coletor::{ComandoColetor, EventoColeta};
 use nucleo::config::Limiares;
 use nucleo::db::resumo_janela;
-use nucleo::metricas::{severidade, ResumoContainer, Severidade};
+use nucleo::metricas::{ResumoContainer, Severidade, severidade};
 
 use crate::screens::app_types::AppTypeScreen;
 use crate::screens::lines::carregar_todas_linhas;
@@ -256,7 +256,16 @@ impl Screen for DashboardScreen {
         )
         .header(
             Row::new(vec![
-                "", "CONTAINER", "STATUS", "ERR", "CRIT", "5xx", "4xx", "p95", "máx", "reqs",
+                "",
+                "CONTAINER",
+                "STATUS",
+                "ERR",
+                "CRIT",
+                "5xx",
+                "4xx",
+                "p95",
+                "máx",
+                "reqs",
             ])
             .style(Style::default().add_modifier(Modifier::BOLD)),
         )

@@ -301,7 +301,10 @@ taxa_erro_pct = 1.0
         c.aplicar_env(vec![
             ("DEV_CLI_COLETA_INTERVALO_SEG".to_string(), "10".to_string()),
             ("DEV_CLI_COLETA_SSH".to_string(), "dev@qa".to_string()),
-            ("DEV_CLI_LIMIARES_TAXA_ERRO_PCT".to_string(), "2.5".to_string()),
+            (
+                "DEV_CLI_LIMIARES_TAXA_ERRO_PCT".to_string(),
+                "2.5".to_string(),
+            ),
         ]);
         assert_eq!(c.coleta.intervalo_seg, 10);
         assert_eq!(c.coleta.ssh, "dev@qa");

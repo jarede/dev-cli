@@ -8,16 +8,16 @@
 
 use crossterm::event::KeyCode;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 use rusqlite::Connection;
 
-use nucleo::core::{parse_loguru_line, LoguruEntry};
 use crate::screens::lines::LinesScreen;
 use crate::screens::{Screen, ScreenAction};
+use nucleo::core::{LoguruEntry, parse_loguru_line};
 
 /// (metodo, path, status) → lista de (linha_raw, duracao, nivel)
 type GrupoRaw = std::collections::BTreeMap<(String, String, u16), Vec<(String, f64, String)>>;

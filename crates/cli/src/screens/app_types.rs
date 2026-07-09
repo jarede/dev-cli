@@ -9,17 +9,17 @@ use std::collections::BTreeMap;
 
 use crossterm::event::KeyCode;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 use rusqlite::Connection;
 
-use nucleo::core::{analisar_apps, parse_loguru_line, AppType};
 use crate::screens::levels::LevelsScreen;
 use crate::screens::loguru_stats::LoguruStatsScreen;
 use crate::screens::{Screen, ScreenAction};
+use nucleo::core::{AppType, analisar_apps, parse_loguru_line};
 
 pub(crate) struct AppTypeScreen {
     nome_do_container: String,

@@ -13,14 +13,14 @@ use std::collections::BTreeMap;
 
 use crossterm::event::KeyCode;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 use rusqlite::Connection;
 
-use crate::screens::lines::{carregar_linhas, LinesScreen};
+use crate::screens::lines::{LinesScreen, carregar_linhas};
 use crate::screens::{Screen, ScreenAction};
 
 pub(crate) struct LevelsScreen {

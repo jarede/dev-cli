@@ -27,7 +27,7 @@ use crate::db::{
     armazenar_contagens, armazenar_linhas, armazenar_requests, init_db, prune_antigos,
     verificar_status_containers,
 };
-use crate::executor::{listar_containers, obter_logs, obter_logs_desde, Executor};
+use crate::executor::{Executor, listar_containers, obter_logs, obter_logs_desde};
 
 /// O que a thread coletora anuncia para quem estiver ouvindo (a TUI).
 #[derive(Debug)]

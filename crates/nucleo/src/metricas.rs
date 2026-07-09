@@ -153,7 +153,10 @@ mod tests {
 
     #[test]
     fn container_saudavel_e_verde() {
-        assert_eq!(severidade(&resumo_saudavel(), &limiares()), Severidade::Verde);
+        assert_eq!(
+            severidade(&resumo_saudavel(), &limiares()),
+            Severidade::Verde
+        );
     }
 
     #[test]

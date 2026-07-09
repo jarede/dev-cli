@@ -8,16 +8,16 @@ use std::collections::HashSet;
 
 use crossterm::event::KeyCode;
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 use rusqlite::Connection;
 
-use nucleo::core::{format_loguru_entry, parse_loguru_line};
 use crate::screens::{Screen, ScreenAction};
+use nucleo::core::{format_loguru_entry, parse_loguru_line};
 
 pub(crate) struct LinesScreen {
     nome_do_container: String,

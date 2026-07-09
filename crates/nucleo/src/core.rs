@@ -148,10 +148,7 @@ pub fn contar_niveis_docker(conteudo: &str) -> BTreeMap<String, usize> {
         // Varre todos os tokens whitespace-delimited em busca de um nível
         // conhecido. Usamos `any` que para no primeiro match (1 nível por
         // linha, mesmo que a linha contenha múltiplas ocorrências).
-        if let Some(nivel) = limpa
-            .split_whitespace()
-            .find(|token| token_eh_nivel(token))
-        {
+        if let Some(nivel) = limpa.split_whitespace().find(|token| token_eh_nivel(token)) {
             *niveis.entry(extrair_nivel(nivel)).or_insert(0) += 1;
         }
     }
@@ -166,10 +163,7 @@ pub fn categorizar_por_nivel(conteudo: &str) -> BTreeMap<String, Vec<String>> {
     let mut grupos: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for linha in conteudo.lines() {
         let limpa = remover_ansi(linha);
-        if let Some(nivel) = limpa
-            .split_whitespace()
-            .find(|token| token_eh_nivel(token))
-        {
+        if let Some(nivel) = limpa.split_whitespace().find(|token| token_eh_nivel(token)) {
             grupos.entry(extrair_nivel(nivel)).or_default().push(limpa);
         }
     }
@@ -220,7 +214,8 @@ pub fn detectar_app(linha: &str) -> AppType {
     // aplicação) ou " " (access log: "INFO   3.215...").
     // Let chain (edition 2024): combina `let Some` com `&&` para evitar
     // `if` aninhado (lint `collapsible_if` do clippy).
-    if let Some(rest) = t.strip_prefix("INFO")
+    if let Some(rest) = t
+        .strip_prefix("INFO")
         .or_else(|| t.strip_prefix("WARNING"))
         .or_else(|| t.strip_prefix("ERROR"))
         .or_else(|| t.strip_prefix("CRITICAL"))
@@ -328,7 +323,9 @@ pub fn parse_loguru_line(linha: &str) -> Option<LoguruEntry> {
     let partes: Vec<&str> = t.split('|').collect();
     let ts = partes.first()?.trim();
     let level = partes.get(1)?.trim();
-    let msg_idx = (2..partes.len()).find(|&i| partes[i].contains(':')).unwrap_or(2);
+    let msg_idx = (2..partes.len())
+        .find(|&i| partes[i].contains(':'))
+        .unwrap_or(2);
     let msg = partes.get(msg_idx)?.trim();
 
     // Mensagem: "module:func:line - [tenant] METHOD STATUS /path  duration [IP] [UA]"
@@ -341,7 +338,9 @@ pub fn parse_loguru_line(linha: &str) -> Option<LoguruEntry> {
     // Module: "server.py:server:http_request:112" ou "app.py:main:42"
     let mod_parts: Vec<&str> = module_part.split(':').collect();
     let linha_numero: u32 = mod_parts.last()?.parse().ok()?;
-    let funcao = mod_parts.get(mod_parts.len().saturating_sub(2))?.to_string();
+    let funcao = mod_parts
+        .get(mod_parts.len().saturating_sub(2))?
+        .to_string();
     let modulo = if mod_parts.len() > 2 {
         mod_parts[..mod_parts.len().saturating_sub(2)].join(":")
     } else {
@@ -498,17 +497,26 @@ linha de continuação sem timestamp nem nível";
 
     #[test]
     fn detecta_uvicorn_info() {
-        assert_eq!(detectar_app("INFO:     Application startup complete."), AppType::Uvicorn);
+        assert_eq!(
+            detectar_app("INFO:     Application startup complete."),
+            AppType::Uvicorn
+        );
     }
 
     #[test]
     fn detecta_uvicorn_warning() {
-        assert_eq!(detectar_app("WARNING:  Something is slow."), AppType::Uvicorn);
+        assert_eq!(
+            detectar_app("WARNING:  Something is slow."),
+            AppType::Uvicorn
+        );
     }
 
     #[test]
     fn detecta_uvicorn_error() {
-        assert_eq!(detectar_app("ERROR:    Connection refused."), AppType::Uvicorn);
+        assert_eq!(
+            detectar_app("ERROR:    Connection refused."),
+            AppType::Uvicorn
+        );
     }
 
     #[test]
@@ -555,8 +563,14 @@ linha de continuação sem timestamp nem nível";
 
     #[test]
     fn detecta_outros_para_texto_livre() {
-        assert_eq!(detectar_app("qualquer coisa sem formato conhecido"), AppType::Outros);
-        assert_eq!(detectar_app("2026-07-03  INFO dev_web: server starting"), AppType::Outros);
+        assert_eq!(
+            detectar_app("qualquer coisa sem formato conhecido"),
+            AppType::Outros
+        );
+        assert_eq!(
+            detectar_app("2026-07-03  INFO dev_web: server starting"),
+            AppType::Outros
+        );
     }
 
     // --- analisar_apps ----------------------------------------------------------

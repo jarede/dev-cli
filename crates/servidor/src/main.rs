@@ -11,13 +11,13 @@
 mod api;
 
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use clap::Parser;
 use rusqlite::Connection;
 
-use nucleo::coletor::{iniciar_coletor, ComandoColetor, EventoColeta, ParametrosColetor};
+use nucleo::coletor::{ComandoColetor, EventoColeta, ParametrosColetor, iniciar_coletor};
 use nucleo::config::Config;
 use nucleo::db::init_db;
 use nucleo::executor::Executor;

@@ -1,0 +1,11 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
+  background: #0f1115;
+  color: #d7dae0;
+}

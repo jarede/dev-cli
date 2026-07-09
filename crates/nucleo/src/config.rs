@@ -31,6 +31,7 @@ use serde::Deserialize;
 ///
 /// [servidor]
 /// bind = "127.0.0.1:8787"
+/// portal_dir = ""
 /// ```
 // `#[serde(default)]`: se uma seção/campo faltar no TOML, usa o `Default`
 // correspondente em vez de falhar — permite arquivos parciais.
@@ -105,6 +106,10 @@ pub struct Servidor {
     /// expor para a rede deve ser uma decisão EXPLÍCITA do operador
     /// (mudar para "0.0.0.0:8787" na config ou usar um proxy reverso).
     pub bind: String,
+    /// Diretório com o build do portal web (web/dist). Vazio = o servidor
+    /// não serve estáticos (só a API) — o default em desenvolvimento,
+    /// onde o Vite serve o portal com proxy.
+    pub portal_dir: String,
 }
 
 // Mesmo motivo do `Default` manual de `Coleta`: o default do projeto não é
@@ -114,6 +119,7 @@ impl Default for Servidor {
     fn default() -> Self {
         Self {
             bind: "127.0.0.1:8787".to_string(),
+            portal_dir: String::new(),
         }
     }
 }
@@ -174,6 +180,7 @@ impl Config {
                     }
                 }
                 "DEV_CLI_SERVIDOR_BIND" => self.servidor.bind = valor,
+                "DEV_CLI_SERVIDOR_PORTAL_DIR" => self.servidor.portal_dir = valor,
                 _ => {}
             }
         }
@@ -348,5 +355,21 @@ taxa_erro_pct = 1.0
             "0.0.0.0:1234".to_string(),
         )]);
         assert_eq!(c.servidor.bind, "0.0.0.0:1234");
+    }
+
+    #[test]
+    fn portal_dir_default_e_vazio() {
+        assert_eq!(Config::default().servidor.portal_dir, "");
+    }
+
+    #[test]
+    fn toml_e_env_configuram_portal_dir() {
+        let mut c = Config::de_toml("[servidor]\nportal_dir = \"/opt/portal\"\n").unwrap();
+        assert_eq!(c.servidor.portal_dir, "/opt/portal");
+        c.aplicar_env(vec![(
+            "DEV_CLI_SERVIDOR_PORTAL_DIR".to_string(),
+            "/tmp/dist".to_string(),
+        )]);
+        assert_eq!(c.servidor.portal_dir, "/tmp/dist");
     }
 }

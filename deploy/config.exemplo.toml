@@ -21,3 +21,6 @@ taxa_erro_pct = 5.0
 # A API escuta só em localhost por padrão; para expor, prefira um proxy
 # reverso (nginx) ou mude conscientemente para "0.0.0.0:8787".
 bind = "127.0.0.1:8787"
+# Build do portal web (Fase 3). Vazio = só a API. Na VM, copie o web/dist
+# para este diretório (ex.: rsync -av web/dist/ vm:/var/lib/dev-cli/portal/).
+portal_dir = ""

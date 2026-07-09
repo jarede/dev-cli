@@ -48,6 +48,10 @@ struct Cli {
     /// Segundos entre coletas (sobrepõe config/env).
     #[arg(long)]
     intervalo: Option<u64>,
+    /// Diretório com o build do portal web (web/dist) para servir como
+    /// estático (sobrepõe config/env). Vazio/ausente = só a API.
+    #[arg(long)]
+    portal_dir: Option<PathBuf>,
 }
 
 // `#[tokio::main]`: cria o runtime tokio e roda o futuro até o fim.
@@ -77,6 +81,9 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(intervalo) = cli.intervalo {
         config.coleta.intervalo_seg = intervalo;
+    }
+    if let Some(portal) = &cli.portal_dir {
+        config.servidor.portal_dir = portal.display().to_string();
     }
 
     let executor = if config.coleta.ssh.is_empty() {
@@ -129,7 +136,13 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
         db: Arc::new(Mutex::new(conn)),
         config: Arc::new(config.clone()),
     };
-    let rotas = api::criar_rotas(estado).layer(tower_http::cors::CorsLayer::permissive());
+    let mut rotas = api::criar_rotas(estado).layer(tower_http::cors::CorsLayer::permissive());
+    if !config.servidor.portal_dir.is_empty() {
+        rotas = rotas.fallback_service(tower_http::services::ServeDir::new(
+            &config.servidor.portal_dir,
+        ));
+        println!("portal estático: {}", config.servidor.portal_dir);
+    }
 
     let listener = tokio::net::TcpListener::bind(&config.servidor.bind).await?;
     println!("dev-server ouvindo em http://{}", config.servidor.bind);

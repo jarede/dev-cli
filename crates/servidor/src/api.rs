@@ -294,6 +294,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn portal_estatico_e_servido_como_fallback() {
+        let dir = std::env::temp_dir().join("dev-cli-teste-portal");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<h1>portal</h1>").unwrap();
+
+        let rotas = criar_rotas(estado_teste())
+            .fallback_service(tower_http::services::ServeDir::new(&dir));
+
+        let resposta = rotas
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resposta.status(), StatusCode::OK);
+
+        let (status, json) = get_json(rotas, "/api/saude").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
     async fn alertas_recentes_saem_no_json() {
         let estado = estado_teste();
         {

@@ -26,7 +26,7 @@ dirs = "6"
 http-body-util = "0.1"
 dotenvy = "0.15"
 owo-colors = "4"
-ratatui = "0.29"
+ratatui = "0.30"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

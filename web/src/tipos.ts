@@ -39,3 +39,13 @@ export interface Alerta {
   mensagem: string
   criado_em: number
 }
+
+/// Uma linha de erro/crítico no feed global (`/api/erros`).
+/// Inclui `id` (cursor) e `container` porque a consulta cruza containers.
+export interface ErroLog {
+  id: number
+  container: string
+  nivel: string
+  linha: string
+  collected_at: number
+}

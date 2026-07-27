@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buscarAlertas, buscarContainers, buscarLinhas } from './api'
+import { buscarAlertas, buscarContainers, buscarErros, buscarLinhas } from './api'
 
 /// Uma Response de sucesso com corpo JSON (o objeto Response do fetch
 /// existe no jsdom/node moderno — não precisa de mock de biblioteca).
@@ -59,5 +59,23 @@ describe('cliente da API', () => {
     await buscarAlertas()
 
     expect(fetchFalso).toHaveBeenCalledWith('/api/alertas?limite=100')
+  })
+
+  it('buscarErros monta a URL com desde_id e limite', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson([]))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarErros(42)
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/erros?desde_id=42&limite=100')
+  })
+
+  it('buscarErros propaga limite customizado', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson([]))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarErros(0, 50)
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/erros?desde_id=0&limite=50')
   })
 })

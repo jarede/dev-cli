@@ -159,3 +159,73 @@ body {
   padding: 0.25rem 0;
   color: var(--amarelo);
 }
+
+/* Feed global de erros — acima da tabela, primeira coisa ao abrir. */
+.feed-erros {
+  margin-bottom: 1rem;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+}
+
+.feed-erros h2 {
+  font-size: 0.8rem;
+  font-weight: normal;
+  color: var(--texto-fraco);
+  text-transform: lowercase;
+  margin-bottom: 0.4rem;
+}
+
+.feed-erros ul {
+  list-style: none;
+  max-height: 14rem;
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+
+.feed-erros li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.28rem 0.35rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--borda) 40%, transparent);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  border-radius: 4px;
+  transition: background 0.4s ease;
+}
+
+.feed-erros li:hover {
+  background: color-mix(in srgb, var(--borda) 50%, var(--painel));
+}
+
+/* Destaque temporário (~2s) quando o item acaba de chegar no poll. */
+.feed-erros li.novo {
+  background: color-mix(in srgb, var(--vermelho) 22%, var(--painel));
+}
+
+.feed-erros .feed-container {
+  color: var(--texto-fraco);
+  flex-shrink: 0;
+}
+
+.feed-erros .feed-nivel {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  min-width: 4.5rem;
+}
+
+.feed-erros .feed-linha {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-erros .feed-quando {
+  color: var(--texto-fraco);
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}

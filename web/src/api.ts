@@ -3,7 +3,7 @@
 // As URLs são RELATIVAS (/api/...): em dev o proxy do Vite repassa ao
 // dev-server; em produção portal e API saem da mesma origem (ServeDir).
 
-import type { Alerta, ContainerResumo, LinhaLog } from './tipos'
+import type { Alerta, ContainerResumo, ErroLog, LinhaLog } from './tipos'
 
 /// GET + parse de JSON com erro para status não-2xx.
 /// Genérica em T: o chamador diz o tipo esperado do corpo.
@@ -37,4 +37,9 @@ export function buscarLinhas(
 /// Alertas recentes (containers que pararam/reiniciaram).
 export function buscarAlertas(limite: number = 100): Promise<Alerta[]> {
   return buscarJson(`/api/alertas?limite=${limite}`)
+}
+
+/// Erros/críticos globais com `id > desdeId` (cursor incremental do feed).
+export function buscarErros(desdeId: number, limite = 100): Promise<ErroLog[]> {
+  return buscarJson(`/api/erros?desde_id=${desdeId}&limite=${limite}`)
 }

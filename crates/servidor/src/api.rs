@@ -22,7 +22,9 @@ use serde::{Deserialize, Serialize};
 
 use nucleo::coletor::agora_unix;
 use nucleo::config::Config;
-use nucleo::db::{Alerta, LinhaLog, alertas_recentes, carregar_linhas_janela, resumo_janela};
+use nucleo::db::{
+    Alerta, ErroLog, LinhaLog, alertas_recentes, carregar_linhas_janela, erros_desde, resumo_janela,
+};
 use nucleo::metricas::{ResumoContainer, Severidade, severidade};
 
 /// Estado compartilhado entre todos os handlers da API.
@@ -48,6 +50,7 @@ pub fn criar_rotas(estado: EstadoApi) -> Router {
         // docs: https://docs.rs/axum/latest/axum/extract/struct.Path.html
         .route("/api/containers/{nome}/linhas", get(listar_linhas))
         .route("/api/alertas", get(listar_alertas))
+        .route("/api/erros", get(listar_erros))
         // `.with_state`: injeta o estado; os handlers o recebem via o
         // extractor `State<EstadoApi>`.
         .with_state(estado)
@@ -166,6 +169,29 @@ async fn listar_alertas(
     let conn = estado.db.lock().map_err(erro_interno)?;
     let alertas = alertas_recentes(&conn, corte, limite).map_err(erro_interno)?;
     Ok(Json(alertas))
+}
+
+/// Query string de `/api/erros` — cursor incremental por `id`.
+/// Ausente/`0` = desde o início; `limite` default 100.
+#[derive(Deserialize)]
+struct ParamsErros {
+    desde_id: Option<i64>,
+    limite: Option<usize>,
+}
+
+/// GET /api/erros — feed global de ERROR/CRIT de qualquer container, com
+/// cursor por `id` (só o que é novo desde a última busca do cliente).
+/// Sem filtro de janela de tempo: o cursor já resolve "o que é novo".
+async fn listar_erros(
+    State(estado): State<EstadoApi>,
+    Query(params): Query<ParamsErros>,
+) -> Result<Json<Vec<ErroLog>>, (StatusCode, String)> {
+    let desde_id = params.desde_id.unwrap_or(0);
+    let limite = params.limite.unwrap_or(100);
+
+    let conn = estado.db.lock().map_err(erro_interno)?;
+    let erros = erros_desde(&conn, desde_id, limite).map_err(erro_interno)?;
+    Ok(Json(erros))
 }
 
 /// Converte qualquer erro exibível numa resposta 500 com a mensagem no
@@ -312,6 +338,42 @@ mod tests {
         let (status, json) = get_json(rotas, "/api/saude").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn erros_cursor_respeita_desde_id() {
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            conn.execute(
+                "INSERT INTO log_lines (container_name, level, line, collected_at)
+                 VALUES ('app', 'ERROR', 'deu ruim', ?1),
+                        ('app', 'INFO', 'tudo bem', ?1),
+                        ('zen', 'CRITICAL', 'caiu', ?1)",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+        }
+
+        let rotas = criar_rotas(estado);
+        // desde_id ausente: todos os erros (INFO fica de fora).
+        let (status, json) = get_json(rotas.clone(), "/api/erros").await;
+        assert_eq!(status, StatusCode::OK);
+        let lista = json.as_array().unwrap();
+        assert_eq!(lista.len(), 2);
+        assert_eq!(lista[0]["container"], "app");
+        assert_eq!(lista[0]["nivel"], "ERROR");
+        assert_eq!(lista[0]["linha"], "deu ruim");
+        assert!(lista[0]["id"].as_i64().unwrap() > 0);
+        assert!(lista[0]["collected_at"].as_i64().is_some());
+        assert_eq!(lista[1]["container"], "zen");
+        assert_eq!(lista[1]["nivel"], "CRITICAL");
+
+        // desde_id no último id: nada novo.
+        let ultimo_id = lista[1]["id"].as_i64().unwrap();
+        let (_, json) = get_json(rotas, &format!("/api/erros?desde_id={ultimo_id}")).await;
+        assert_eq!(json.as_array().unwrap().len(), 0);
     }
 
     #[tokio::test]

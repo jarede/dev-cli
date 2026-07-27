@@ -1,19 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import App from './App'
 
 vi.mock('./api', () => ({
   buscarContainers: vi.fn(),
   buscarAlertas: vi.fn(),
+  buscarErros: vi.fn(),
 }))
-import { buscarAlertas, buscarContainers } from './api'
+import { buscarAlertas, buscarContainers, buscarErros } from './api'
 const containersFalso = vi.mocked(buscarContainers)
 const alertasFalso = vi.mocked(buscarAlertas)
+const errosFalso = vi.mocked(buscarErros)
 
 describe('App', () => {
   beforeEach(() => {
     containersFalso.mockReset()
     alertasFalso.mockReset()
+    errosFalso.mockReset()
+    containersFalso.mockResolvedValue([])
+    alertasFalso.mockResolvedValue([])
+    errosFalso.mockResolvedValue([])
   })
 
   it('carrega e mostra containers e alertas', async () => {
@@ -52,5 +58,48 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByText(/sem resposta da API/)).toBeInTheDocument()
+  })
+
+  it('avança o cursor entre polls ao buscar erros', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    errosFalso
+      .mockResolvedValueOnce([
+        {
+          id: 5,
+          container: 'app',
+          nivel: 'ERROR',
+          linha: 'primeiro',
+          collected_at: 100,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 8,
+          container: 'zen',
+          nivel: 'CRITICAL',
+          linha: 'segundo',
+          collected_at: 200,
+        },
+      ])
+      .mockResolvedValue([])
+
+    render(<App />)
+
+    // Primeira carga: desde_id 0.
+    await waitFor(() => {
+      expect(errosFalso).toHaveBeenCalledWith(0)
+    })
+    expect(await screen.findByText('primeiro')).toBeInTheDocument()
+
+    // Avança o intervalo de polling (15s).
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    await waitFor(() => {
+      // Segunda chamada usa o maior id da primeira resposta.
+      expect(errosFalso).toHaveBeenLastCalledWith(5)
+    })
+    expect(await screen.findByText('segundo')).toBeInTheDocument()
+
+    vi.useRealTimers()
   })
 })

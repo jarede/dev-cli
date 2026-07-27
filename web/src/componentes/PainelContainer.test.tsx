@@ -37,6 +37,28 @@ describe('PainelContainer', () => {
     expect(buscarLinhasFalso).toHaveBeenCalledWith('qa-prezzo-1', undefined)
   })
 
+  it('nivelInicial filtra a busca na montagem', async () => {
+    buscarLinhasFalso.mockResolvedValue([])
+    render(<PainelContainer nome="app" nivelInicial="ERROR" aoFechar={() => {}} />)
+
+    await screen.findByText(/nenhuma linha/)
+    expect(buscarLinhasFalso).toHaveBeenCalledWith('app', 'ERROR')
+    expect(screen.getByRole('combobox')).toHaveValue('ERROR')
+  })
+
+  it('nivelInicial com abreviação de supervisord (CRIT) aparece selecionada', async () => {
+    // Regressão: CRIT/ERRO/FATAL são níveis reais (formato supervisord, ver
+    // NIVEIS_DOCKER no nucleo) que chegam via clique no feed de erros. Antes
+    // do fix, o <select> não tinha essas opções e mostrava "todos os
+    // níveis" mesmo com a busca já filtrada — este teste trava isso.
+    buscarLinhasFalso.mockResolvedValue([])
+    render(<PainelContainer nome="app" nivelInicial="CRIT" aoFechar={() => {}} />)
+
+    await screen.findByText(/nenhuma linha/)
+    expect(buscarLinhasFalso).toHaveBeenCalledWith('app', 'CRIT')
+    expect(screen.getByRole('combobox')).toHaveValue('CRIT')
+  })
+
   it('trocar o nível refaz a busca com o filtro', async () => {
     buscarLinhasFalso.mockResolvedValue([])
     render(<PainelContainer nome="app" aoFechar={() => {}} />)

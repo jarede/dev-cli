@@ -308,6 +308,69 @@ pub fn carregar_linhas_janela(
     Ok(resultado)
 }
 
+/// Uma linha de erro/crítico carregada para o feed global — item do
+/// endpoint `/api/erros`. Diferente de `LinhaLog`, inclui `id` (o cursor
+/// de paginação incremental) e `container`, porque a consulta cruza
+/// containers.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ErroLog {
+    pub id: i64,
+    pub container: String,
+    pub nivel: String,
+    pub linha: String,
+    pub collected_at: i64,
+}
+
+/// Erros/críticos de QUALQUER container para o feed global.
+///
+/// - `desde_id <= 0` (carga inicial): os `limite` mais recentes, devolvidos
+///   em `id ASC` para o cliente posicionar o cursor no maior id do lote.
+/// - `desde_id > 0` (poll incremental): só `id > desde_id`, em `id ASC`.
+///
+/// Cursor por `id` (PK autoincrement), não por `collected_at`: timestamps
+/// podem colidir entre linhas da mesma coleta, então não servem como
+/// cursor de "já vi isso". `id` é estritamente crescente.
+/// `limite` protege a API de respostas gigantes se o cliente ficar muito
+/// tempo sem buscar (aba aberta dias).
+pub fn erros_desde(
+    conn: &Connection,
+    desde_id: i64,
+    limite: usize,
+) -> Result<Vec<ErroLog>, Box<dyn std::error::Error>> {
+    // Closure local: mapeia a row nos dois SQLs (mesmo shape de colunas).
+    let mapear = |row: &rusqlite::Row<'_>| -> rusqlite::Result<ErroLog> {
+        Ok(ErroLog {
+            id: row.get(0)?,
+            container: row.get(1)?,
+            nivel: row.get(2)?,
+            linha: row.get(3)?,
+            collected_at: row.get(4)?,
+        })
+    };
+
+    if desde_id <= 0 {
+        // Bootstrap: pega os mais novos (DESC) e inverte para ASC — o
+        // cliente avança o cursor com `lote.last().id` sem caso especial.
+        let mut stmt = conn.prepare(
+            "SELECT id, container_name, level, line, collected_at FROM log_lines
+             WHERE level IN ('ERROR','ERRO','CRIT','CRITICAL','FATAL')
+             ORDER BY id DESC LIMIT ?1",
+        )?;
+        let erros = stmt.query_map(rusqlite::params![limite as i64], mapear)?;
+        let mut lote: Vec<ErroLog> = erros.filter_map(|r| r.ok()).collect();
+        lote.reverse();
+        return Ok(lote);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, container_name, level, line, collected_at FROM log_lines
+         WHERE id > ?1 AND level IN ('ERROR','ERRO','CRIT','CRITICAL','FATAL')
+         ORDER BY id ASC LIMIT ?2",
+    )?;
+    let erros = stmt.query_map(rusqlite::params![desde_id, limite as i64], mapear)?;
+    Ok(erros.filter_map(|r| r.ok()).collect())
+}
+
 /// Um alerta persistido (container parou/reiniciou) — item do endpoint
 /// `/api/alertas` da Fase 2.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -544,6 +607,45 @@ mod tests {
         assert_eq!(linhas.len(), 2);
         assert_eq!(linhas[0].linha, "linha 3");
         assert_eq!(linhas[1].linha, "linha 2");
+    }
+
+    #[test]
+    fn erros_desde_filtra_nivel_cursor_limite_e_mistura_containers() {
+        let conn = banco();
+        // Ordem de inserção = ordem de id (autoincrement). Mistura níveis
+        // e containers para garantir o filtro e o cruzamento.
+        conn.execute(
+            "INSERT INTO log_lines (container_name, level, line, collected_at)
+             VALUES ('app', 'INFO', 'ok', 100),
+                    ('app', 'ERROR', 'erro app', 100),
+                    ('zen', 'CRITICAL', 'crit zen', 100),
+                    ('app', 'WARNING', 'aviso', 100),
+                    ('zen', 'FATAL', 'fatal zen', 100),
+                    ('app', 'ERRO', 'erro pt', 100)",
+            [],
+        )
+        .unwrap();
+
+        // desde_id 0: só ERROR/ERRO/CRIT/CRITICAL/FATAL, id ASC, todos os containers.
+        let todos = erros_desde(&conn, 0, 100).unwrap();
+        assert_eq!(todos.len(), 4);
+        assert_eq!(todos[0].container, "app");
+        assert_eq!(todos[0].nivel, "ERROR");
+        assert_eq!(todos[0].linha, "erro app");
+        assert_eq!(todos[1].container, "zen");
+        assert_eq!(todos[1].nivel, "CRITICAL");
+        assert_eq!(todos[2].nivel, "FATAL");
+        assert_eq!(todos[3].nivel, "ERRO");
+
+        // Cursor: ids > primeiro erro — não repete o que já passou.
+        let apos = erros_desde(&conn, todos[0].id, 100).unwrap();
+        assert_eq!(apos.len(), 3);
+        assert_eq!(apos[0].id, todos[1].id);
+
+        // Limite na carga inicial: os N mais recentes (não os mais antigos).
+        let um = erros_desde(&conn, 0, 1).unwrap();
+        assert_eq!(um.len(), 1);
+        assert_eq!(um[0].id, todos[3].id);
     }
 
     #[test]

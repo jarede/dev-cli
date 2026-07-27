@@ -10,15 +10,33 @@ import type { LinhaLog } from '../tipos'
 
 /// Níveis oferecidos no filtro ('' = todos). Lista fixa: os níveis do
 /// Loguru/parse do nucleo, não vale a pena descobrir dinamicamente.
-const NIVEIS = ['', 'CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'] as const
+/// Inclui as abreviações de supervisord (CRIT, ERRO, FATAL) além das formas
+/// completas — são literais reais gravados pelo `nucleo::core` (ver
+/// `NIVEIS_DOCKER`), e chegam aqui via `nivelInicial` quando o clique vem do
+/// feed de erros. Sem elas, o `<select>` mostraria "todos os níveis" mesmo
+/// com a busca já filtrada por um desses níveis.
+const NIVEIS = [
+  '',
+  'CRITICAL',
+  'CRIT',
+  'FATAL',
+  'ERROR',
+  'ERRO',
+  'WARNING',
+  'INFO',
+  'DEBUG',
+] as const
 
 interface Props {
   nome: string
   aoFechar: () => void
+  /** Filtro de nível ao abrir (ex.: veio do clique num item do feed). */
+  nivelInicial?: string
 }
 
-export function PainelContainer({ nome, aoFechar }: Props) {
-  const [nivel, setNivel] = useState('')
+export function PainelContainer({ nome, aoFechar, nivelInicial }: Props) {
+  // Só a montagem usa nivelInicial — se o pai trocar o filtro, remonta via key.
+  const [nivel, setNivel] = useState(nivelInicial ?? '')
   const [linhas, setLinhas] = useState<LinhaLog[]>([])
   const [erro, setErro] = useState<string | null>(null)
 

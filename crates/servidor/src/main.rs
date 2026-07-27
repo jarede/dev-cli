@@ -66,6 +66,21 @@ async fn main() {
 }
 
 async fn executar() -> Result<(), Box<dyn std::error::Error>> {
+    // 0. Log de acesso: por padrão o axum/tokio não imprime NADA por
+    // request — sem essa inicialização, `TraceLayer` (passo 5) tem span
+    // pra preencher mas nenhum "assinante" (subscriber) pra desenhar a
+    // linha de log. `EnvFilter` deixa o operador ajustar o nível em
+    // produção via `RUST_LOG=debug` sem recompilar; sem essa variável,
+    // cai no filtro default abaixo (INFO só do nosso crate e do tower-http).
+    // docs: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html
+    // docs: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/index.html
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "servidor=info,tower_http=info".into()),
+        )
+        .init();
+
     // 1. Config com precedência flags > env > arquivo > defaults —
     // exatamente como o `logs dashboard` do CLI.
     let cli = Cli::parse();
@@ -136,7 +151,18 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
         db: Arc::new(Mutex::new(conn)),
         config: Arc::new(config.clone()),
     };
-    let mut rotas = api::criar_rotas(estado).layer(tower_http::cors::CorsLayer::permissive());
+    // `TraceLayer`: middleware do tower-http que embrulha CADA request numa
+    // span de tracing e, na resposta, registra método, caminho, status e
+    // latência. `DefaultMakeSpan`/`DefaultOnResponse` vêm no nível DEBUG por
+    // padrão — subimos pra INFO pra aparecer com o filtro default acima,
+    // sem exigir `RUST_LOG=debug` só pra ver os acessos básicos.
+    // docs: https://docs.rs/tower-http/latest/tower_http/trace/index.html
+    let camada_log_acesso = tower_http::trace::TraceLayer::new_for_http()
+        .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
+        .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::INFO));
+    let mut rotas = api::criar_rotas(estado)
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(camada_log_acesso);
     if !config.servidor.portal_dir.is_empty() {
         rotas = rotas.fallback_service(tower_http::services::ServeDir::new(
             &config.servidor.portal_dir,

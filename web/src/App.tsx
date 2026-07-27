@@ -31,11 +31,19 @@ function App() {
   const cursorRef = useRef(0)
   // Primeira carga mostra contexto sem piscar o destaque de "novo".
   const cargaInicialRef = useRef(true)
+  // Trava contra corrida: sem ela, duas chamadas de `carregar()` sobrepostas
+  // (o StrictMode do React chama os efeitos duas vezes em dev; em produção
+  // pode acontecer se uma resposta demorar mais que os 15s do próximo poll)
+  // leriam o MESMO `cursorRef.current` antes de qualquer uma avançá-lo,
+  // buscando e duplicando o mesmo lote de erros no feed.
+  const buscandoRef = useRef(false)
 
   // `useCallback`: memoriza a função para o useEffect abaixo poder listá-la
   // como dependência sem recriar o intervalo a cada render.
   // docs: https://react.dev/reference/react/useCallback
   const carregar = useCallback(async () => {
+    if (buscandoRef.current) return
+    buscandoRef.current = true
     try {
       // As três buscas em paralelo — Promise.all falha se qualquer uma
       // falhar, o que aqui é o comportamento certo (mesma API fora do ar).
@@ -68,6 +76,8 @@ function App() {
       // Mantém os últimos dados na tela (stale é melhor que vazio) e
       // liga o banner de erro.
       setErro(e instanceof Error ? e.message : String(e))
+    } finally {
+      buscandoRef.current = false
     }
   }, [])
 

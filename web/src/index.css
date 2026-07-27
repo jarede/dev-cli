@@ -100,12 +100,35 @@ body {
   padding: 1rem;
 }
 
+.painel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 19;
+}
+
 .painel-container {
-  margin-top: 1rem;
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 420px;
+  max-width: 90vw;
   background: var(--painel);
-  border: 1px solid var(--borda);
-  border-radius: 8px;
+  border-left: 1px solid var(--borda);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
   padding: 0.75rem;
+  /* Nasce fora da tela; a classe `aberto` (aplicada um frame depois de
+     montar, ver PainelContainer.tsx) dispara a transição de entrada. */
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+
+.painel-container.aberto {
+  transform: translateX(0);
 }
 
 .painel-container .barra {
@@ -137,7 +160,7 @@ body {
 
 .linhas-log {
   list-style: none;
-  max-height: 50vh;
+  flex: 1;
   overflow-y: auto;
   font-size: 0.78rem;
 }

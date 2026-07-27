@@ -80,6 +80,39 @@ describe('PainelContainer', () => {
     expect(aoFechar).toHaveBeenCalled()
   })
 
+  it('tecla Escape chama aoFechar', async () => {
+    buscarLinhasFalso.mockResolvedValue([])
+    const aoFechar = vi.fn()
+    render(<PainelContainer nome="app" aoFechar={aoFechar} />)
+    await screen.findByText(/nenhuma linha/)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(aoFechar).toHaveBeenCalled()
+  })
+
+  it('clique no backdrop chama aoFechar', async () => {
+    buscarLinhasFalso.mockResolvedValue([])
+    const aoFechar = vi.fn()
+    const { container } = render(<PainelContainer nome="app" aoFechar={aoFechar} />)
+    await screen.findByText(/nenhuma linha/)
+
+    const backdrop = container.querySelector('.painel-backdrop')
+    expect(backdrop).toBeInTheDocument()
+    fireEvent.click(backdrop!)
+    expect(aoFechar).toHaveBeenCalled()
+  })
+
+  it('clique dentro da gaveta não chama aoFechar', async () => {
+    buscarLinhasFalso.mockResolvedValue([])
+    const aoFechar = vi.fn()
+    render(<PainelContainer nome="app" aoFechar={aoFechar} />)
+    await screen.findByText(/nenhuma linha/)
+
+    // Clicar no <select> (dentro da gaveta) não deve propagar pro backdrop.
+    fireEvent.click(screen.getByRole('combobox'))
+    expect(aoFechar).not.toHaveBeenCalled()
+  })
+
   it('erro da API aparece no painel', async () => {
     // `mockImplementation` em vez de `mockRejectedValue`: evita a promise
     // rejeitada "pendurada" no mock antes do componente montar e anexar o

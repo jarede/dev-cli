@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import App from './App'
 
 vi.mock('./api', () => ({
@@ -44,7 +45,7 @@ describe('App', () => {
       { container: 'morto', tipo: 'stopped', mensagem: "Container 'morto' parou", criado_em: 1 },
     ])
 
-    render(<App />)
+    render(<App />, { wrapper: MemoryRouter })
 
     expect(await screen.findByText('qa-prezzo-1')).toBeInTheDocument()
     expect(screen.getByText(/1 problema/)).toBeInTheDocument()
@@ -55,9 +56,9 @@ describe('App', () => {
     containersFalso.mockRejectedValue(new Error('API respondeu 500'))
     alertasFalso.mockResolvedValue([])
 
-    render(<App />)
+    render(<App />, { wrapper: MemoryRouter })
 
-    expect(await screen.findByText(/sem resposta da API/)).toBeInTheDocument()
+    expect(await screen.findByText(/sem resposta da api/i)).toBeInTheDocument()
   })
 
   it('avança o cursor entre polls ao buscar erros', async () => {
@@ -83,7 +84,7 @@ describe('App', () => {
       ])
       .mockResolvedValue([])
 
-    render(<App />)
+    render(<App />, { wrapper: MemoryRouter })
 
     // Primeira carga: desde_id 0.
     await waitFor(() => {

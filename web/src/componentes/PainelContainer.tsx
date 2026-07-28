@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { buscarLinhas } from '../api'
 import type { LinhaLog } from '../tipos'
+import { corNivel } from '../formato'
 
 /// Níveis oferecidos no filtro ('' = todos). Lista fixa: os níveis do
 /// Loguru/parse do nucleo, não vale a pena descobrir dinamicamente.
@@ -84,28 +85,42 @@ export function PainelContainer({ nome, aoFechar, nivelInicial }: Props) {
 
   return (
     <>
-      <div className="painel-backdrop" onClick={aoFechar} />
-      <section className={`painel-container${aberto ? ' aberto' : ''}`}>
-        <div className="barra">
-          <strong>{nome}</strong>
-          <select value={nivel} onChange={(e) => setNivel(e.target.value)}>
+      <div className="drawer-backdrop" onClick={aoFechar} />
+      <section className={`drawer${aberto ? ' aberto' : ''}`} role="dialog" aria-label={`Linhas de ${nome}`}>
+        <div className="drawer-barra">
+          <h2>{nome}</h2>
+          <select
+            className="input"
+            style={{ width: 'auto', padding: '4px 8px', fontSize: 12 }}
+            value={nivel}
+            onChange={(e) => setNivel(e.target.value)}
+            aria-label="Filtrar por nível"
+          >
             {NIVEIS.map((n) => (
               <option key={n} value={n}>
                 {n === '' ? 'todos os níveis' : n}
               </option>
             ))}
           </select>
-          <button onClick={aoFechar}>fechar</button>
+          <button type="button" className="btn btn-ghost" onClick={aoFechar} style={{ marginLeft: 'auto' }}>
+            Fechar
+          </button>
         </div>
-        {erro !== null && <p className="erro-conexao">⚠ {erro}</p>}
-        {erro === null && linhas.length === 0 && (
-          <p className="vazio">nenhuma linha na janela com esse filtro</p>
-        )}
-        <ul className="linhas-log">
+        <div className="drawer-kicker">
+          Linhas da janela · {linhas.length} {linhas.length === 1 ? 'linha' : 'linhas'}
+        </div>
+        {erro !== null && <div className="banner-api-fora">⚠ {erro}</div>}
+        <div className="drawer-conteudo">
+          {erro === null && linhas.length === 0 && (
+            <p className="drawer-vazio">Nenhuma linha na janela com esse filtro.</p>
+          )}
           {linhas.map((l, i) => (
-            <li key={i}>{l.linha}</li>
+            <div className="drawer-linha" key={i}>
+              <span className="nivel" style={{ color: corNivel(l.nivel) }}>{l.nivel}</span>
+              <span className="texto">{l.linha}</span>
+            </div>
           ))}
-        </ul>
+        </div>
       </section>
     </>
   )

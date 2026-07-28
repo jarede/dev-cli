@@ -15,17 +15,17 @@ describe('FeedErros', () => {
   afterEach(() => cleanup())
 
   it('renderiza nível com a cor de erro (vermelho)', () => {
-    render(<FeedErros erros={[base]} aoClicar={() => {}} />)
+    render(<FeedErros erros={[base]} aoClicar={() => {}} aoVivo={true} />)
 
     const nivel = screen.getByText('ERROR')
-    expect(nivel).toHaveStyle({ color: 'var(--vermelho)' })
+    expect(nivel).toHaveStyle({ color: 'var(--sev-vermelho)' })
     expect(screen.getByText('qa-prezzo-1')).toBeInTheDocument()
     expect(screen.getByText(/deu ruim na fatura/)).toBeInTheDocument()
   })
 
   it('clique dispara aoClicar com container e nível', () => {
     const aoClicar = vi.fn()
-    render(<FeedErros erros={[base]} aoClicar={aoClicar} />)
+    render(<FeedErros erros={[base]} aoClicar={aoClicar} aoVivo={true} />)
 
     fireEvent.click(screen.getByText(/deu ruim na fatura/))
 
@@ -33,14 +33,28 @@ describe('FeedErros', () => {
   })
 
   it('item marcado novo tem a classe de destaque', () => {
-    render(<FeedErros erros={[{ ...base, novo: true }]} aoClicar={() => {}} />)
+    render(<FeedErros erros={[{ ...base, novo: true }]} aoClicar={() => {}} aoVivo={true} />)
 
-    const item = screen.getByText(/deu ruim na fatura/).closest('li')
+    // A classe de destaque agora vive no `feed-item`, não num `<li>`.
+    // Pegamos o container que tem o texto da linha e subimos um nível.
+    const item = screen.getByText(/deu ruim na fatura/).closest('.feed-item')
     expect(item).toHaveClass('novo')
   })
 
-  it('lista vazia não renderiza nada', () => {
-    const { container } = render(<FeedErros erros={[]} aoClicar={() => {}} />)
-    expect(container).toBeEmptyDOMElement()
+  it('bolinha de "ao vivo" reflete a prop', () => {
+    const { container: c1 } = render(<FeedErros erros={[]} aoClicar={() => {}} aoVivo={true} />)
+    expect(c1.querySelector('.bolinha-aovivo')).not.toHaveClass('parado')
+
+    const { container: c2 } = render(<FeedErros erros={[]} aoClicar={() => {}} aoVivo={false} />)
+    expect(c2.querySelector('.bolinha-aovivo')).toHaveClass('parado')
+  })
+
+  it('lista vazia mostra o placeholder em vez de sumir', () => {
+    // Mudou: o feed agora sempre renderiza a seção (com o título "Erros
+    // ao vivo"); só some se não houver nada para mostrar depois — manter
+    // a estrutura ajuda a UI a ter um layout estável.
+    const { container } = render(<FeedErros erros={[]} aoClicar={() => {}} aoVivo={false} />)
+    expect(screen.getByText(/Erros ao vivo/)).toBeInTheDocument()
+    expect(container).not.toBeEmptyDOMElement()
   })
 })

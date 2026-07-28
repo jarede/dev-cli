@@ -1,40 +1,54 @@
-// Cabeçalho do portal: título + resumo global (problemas/containers/
-// reqs/erros na janela) + banner de erro quando a API está fora.
-// Os agregados são DERIVADOS das props a cada render — sem useState:
-// estado derivado não se armazena, se calcula.
-// docs: https://react.dev/learn/you-might-not-need-an-effect#updating-state-based-on-props-or-state
+// Nav sticky no topo do portal: marca + 4 rotas (NavLinks do react-router)
+// + resumo global derivado dos containers. O `aria-current="page"` é
+// aplicado automaticamente pelo NavLink quando a rota casa.
+//
+// A spec (§1 do handoff) põe SÓ o resumo global aqui ("N problemas · 5
+// containers · 36.9k reqs · 277 erros") — o "atualizado há Xs" é do header
+// de CADA tela (ver `VisaoGeral.tsx`), não da nav. Ter os dois lugares
+// mostrando "atualizado" era redundante e podia divergir visualmente
+// (mesmo timestamp, formatado duas vezes na tela).
 
+import { NavLink } from 'react-router-dom'
 import type { ContainerResumo } from '../tipos'
-import { formatarHaQuanto, formatarNumero } from '../formato'
+import { formatarNumero } from '../formato'
+import { ROTAS } from '../rotas'
 
 interface Props {
   containers: ContainerResumo[]
   /** Mensagem de erro da última busca; null = tudo bem. */
   erro: string | null
-  /** Date.now() da última busca bem-sucedida; null = nenhuma ainda. */
-  atualizadoEm: number | null
 }
 
-export function Cabecalho({ containers, erro, atualizadoEm }: Props) {
+export function Cabecalho({ containers, erro }: Props) {
   const problemas = containers.filter((c) => c.severidade !== 'Verde').length
   const reqs = containers.reduce((soma, c) => soma + c.reqs, 0)
   const erros = containers.reduce((soma, c) => soma + c.erros + c.crits, 0)
 
   return (
     <>
-      <header className="cabecalho">
-        <h1>dev-cli · portal</h1>
+      <nav className="nav">
+        <NavLink to="/" className="nav-brand" end>
+          dev-cli · portal
+        </NavLink>
+        {ROTAS.map((r) => (
+          <NavLink
+            key={r.caminho}
+            to={r.caminho}
+            end={r.fim}
+            className="link"
+          >
+            {r.rotulo}
+          </NavLink>
+        ))}
         <span className="resumo">
           {problemas} problema{problemas === 1 ? '' : 's'} · {containers.length} containers ·{' '}
           {formatarNumero(reqs)} reqs · {formatarNumero(erros)} erros
-          {atualizadoEm !== null &&
-            ` · atualizado ${formatarHaQuanto(Math.floor(atualizadoEm / 1000))}`}
         </span>
-      </header>
+      </nav>
       {erro !== null && (
-        <p className="erro-conexao">
-          ⚠ sem resposta da API — o dev-server está rodando? ({erro})
-        </p>
+        <div className="banner-api-fora">
+          Sem resposta da API — o dev-server está rodando? Mostrando os últimos dados conhecidos.
+        </div>
       )}
     </>
   )

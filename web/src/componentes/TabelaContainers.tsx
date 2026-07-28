@@ -1,28 +1,17 @@
-// A tabela do dashboard: containers JÁ ordenados pela API (piores
-// primeiro) — este componente só APRESENTA. Selecionar uma linha abre o
-// drill-down (PainelContainer, Task 4) via callback do pai.
+// A tabela de containers da Visão geral: containers JÁ ordenados pela
+// API (piores primeiro) — este componente só APRESENTA. Selecionar uma
+// linha abre o drill-down (PainelContainer) via callback do pai.
 // Componente "burro"/apresentacional: recebe tudo por props, não busca
 // dados — o que o torna trivial de testar.
 // docs: https://react.dev/learn/passing-props-to-a-component
 
-import type { ContainerResumo, Severidade } from '../tipos'
-import { formatarNumero, formatarSegundos } from '../formato'
+import type { ContainerResumo } from '../tipos'
+import { COR_SEVERIDADE, formatarNumero, formatarSegundos } from '../formato'
 
 interface Props {
   containers: ContainerResumo[]
   selecionado: string | null
   aoSelecionar: (nome: string) => void
-}
-
-/// Cor de cada severidade (variáveis do index.css).
-/// Record<K, V>: objeto com TODAS as chaves de Severidade — o TS acusa se
-/// uma variante nova ficar sem cor.
-/// docs: https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type
-const COR_SEVERIDADE: Record<Severidade, string> = {
-  Verde: 'var(--verde)',
-  Amarelo: 'var(--amarelo)',
-  Vermelho: 'var(--vermelho)',
-  Parado: 'var(--parado)',
 }
 
 export function TabelaContainers({ containers, selecionado, aoSelecionar }: Props) {
@@ -31,49 +20,51 @@ export function TabelaContainers({ containers, selecionado, aoSelecionar }: Prop
   }
 
   return (
-    <table className="tabela-containers">
+    <table className="table">
       <thead>
         <tr>
-          <th></th>
+          <th style={{ width: 18 }}></th>
           <th>container</th>
           <th>status</th>
-          <th>err</th>
-          <th>crit</th>
-          <th>5xx</th>
-          <th>4xx</th>
-          <th>p95</th>
-          <th>máx</th>
-          <th>reqs</th>
+          <th className="num">err</th>
+          <th className="num">crit</th>
+          <th className="num">5xx</th>
+          <th className="num">4xx</th>
+          <th className="num">p95</th>
+          <th className="num">máx</th>
+          <th className="num">reqs</th>
         </tr>
       </thead>
       <tbody>
-        {containers.map((c) => (
-          // `key`: identidade estável de cada linha para o React
-          // reconciliar a lista sem recriar DOM à toa.
-          // docs: https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key
-          <tr
-            key={c.nome}
-            className={c.nome === selecionado ? 'selecionada' : ''}
-            onClick={() => aoSelecionar(c.nome)}
-          >
-            <td>
-              <span
-                className="bolinha"
-                style={{ background: COR_SEVERIDADE[c.severidade] }}
-                title={c.severidade}
-              />
-            </td>
-            <td>{c.nome}</td>
-            <td>{c.status === 'stopped' ? 'parado' : c.uptime || c.status}</td>
-            <td>{formatarNumero(c.erros)}</td>
-            <td>{formatarNumero(c.crits)}</td>
-            <td>{formatarNumero(c.c5xx)}</td>
-            <td>{formatarNumero(c.c4xx)}</td>
-            <td>{formatarSegundos(c.p95_seg)}</td>
-            <td>{formatarSegundos(c.max_seg)}</td>
-            <td>{formatarNumero(c.reqs)}</td>
-          </tr>
-        ))}
+        {containers.map((c) => {
+          // `err > 50` e `crit > 0` ganham cor vermelha (regra do design).
+          const corErr = c.erros > 50 ? 'vermelho' : undefined
+          const corCrit = c.crits > 0 ? 'vermelho' : undefined
+          return (
+            <tr
+              key={c.nome}
+              className={c.nome === selecionado ? 'selecionada' : undefined}
+              onClick={() => aoSelecionar(c.nome)}
+            >
+              <td>
+                <span
+                  className="bolinha"
+                  style={{ background: COR_SEVERIDADE[c.severidade] }}
+                  title={c.severidade}
+                />
+              </td>
+              <td className="nome">{c.nome}</td>
+              <td className="status">{c.status === 'stopped' ? 'parado' : c.uptime || c.status}</td>
+              <td className={`num ${corErr ?? ''}`.trim()}>{formatarNumero(c.erros)}</td>
+              <td className={`num ${corCrit ?? ''}`.trim()}>{formatarNumero(c.crits)}</td>
+              <td className="num">{formatarNumero(c.c5xx)}</td>
+              <td className="num">{formatarNumero(c.c4xx)}</td>
+              <td className="num">{formatarSegundos(c.p95_seg)}</td>
+              <td className="num">{formatarSegundos(c.max_seg)}</td>
+              <td className="num">{formatarNumero(c.reqs)}</td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )

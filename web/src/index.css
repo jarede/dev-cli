@@ -1,254 +1,626 @@
-/* Tema escuro do portal — as cores de severidade são as mesmas semânticas
-   do dashboard TUI (verde/amarelo/vermelho/parado). Variáveis CSS em
-   :root para todos os componentes usarem via var(--nome).
+/* Classical — design system aplicado ao portal dev-cli.
+   Substitui o tema escuro pelo editorial do handoff: fundo claro, hairlines,
+   accent como traço (nunca fill), tipografia Cormorant/Lora. Os tokens
+   abaixo são a fonte da verdade para cor/espaço/tipografia — qualquer
+   ajuste global vive aqui.
    docs: https://developer.mozilla.org/docs/Web/CSS/Using_CSS_custom_properties */
+
+/* Fontes servidas LOCALMENTE (`web/public/fontes/`, copiadas para
+   `web/dist/fontes/` no build via `npm run build` — o Vite copia tudo de
+   `public/` para a raiz do dist). O dev-server roda numa VM RHEL interna,
+   via systemd, sem saída para a internet: um `@import` de
+   fonts.googleapis.com (como antes) falha silenciosamente nesse ambiente e
+   o design cai para `system-ui`, perdendo a fidelidade do design Classical.
+   Pesos 400/600 de Cormorant Garamond e Lora, subsets latin + latin-ext
+   (cobre os acentos do pt-br) — baixados de fonts.gstatic.com.
+   `font-display: swap`: mostra o texto com a fonte de fallback até a
+   fonte carregar, em vez de invisível (evita FOIT).
+   docs: https://developer.mozilla.org/docs/Web/CSS/@font-face
+   docs: https://developer.mozilla.org/docs/Web/CSS/@font-face/font-display */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fontes/cormorant-garamond-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fontes/cormorant-garamond-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fontes/cormorant-garamond-600-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fontes/cormorant-garamond-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fontes/lora-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fontes/lora-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fontes/lora-600-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fontes/lora-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
-  --fundo: #0f1115;
-  --painel: #171a21;
-  --borda: #262b36;
-  --texto: #d7dae0;
-  --texto-fraco: #8a90a0;
-  --verde: #4caf50;
-  --amarelo: #e6b450;
-  --vermelho: #e05252;
-  --parado: #9aa0b0;
+  /* Cores base — geradas em OKLCH numa escala única de luminosidade, então
+     o mesmo step de qualquer role casa visualmente com os outros. */
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201f1d;
+  --color-divider: color-mix(in srgb, #201f1d 16%, transparent);
+  --color-accent: #b68235;
+
+  /* Ramp neutro (cinzas quentes). */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  /* Ramp do accent (dourado quente). */
+  --color-accent-100: #fff3e4;
+  --color-accent-200: #ffe3bf;
+  --color-accent-300: #facb8d;
+  --color-accent-400: #e1ad66;
+  --color-accent-500: #c28d41;
+  --color-accent-600: #a06f24;
+  --color-accent-700: #7d5411;
+  --color-accent-800: #5a3b0a;
+  --color-accent-900: #3a270d;
+
+  /* Severidades (semânticas — fora do DS original, mas harmonizadas em
+     OKLCH pra conviver com o ramp do accent sem brigar visualmente). */
+  --sev-verde: #5f7a52;
+  --sev-amarelo: var(--color-accent);
+  --sev-vermelho: #a2503c;
+  --sev-parado: var(--color-neutral-400);
+
+  /* Tipografia: headings em Cormorant (semibold, nunca bold pesado),
+     corpo em Lora, números com tabular nums. */
+  --font-heading: "Cormorant Garamond", system-ui, serif;
+  --font-heading-weight: 600;
+  --font-body: "Lora", system-ui, serif;
+  --font-mono: ui-monospace, Menlo, "Cascadia Code", monospace;
+
+  /* Escala de espaçamento (units de ~4.6px — uma proporção "compacta"). */
+  --space-1: 4.6px;
+  --space-2: 9.2px;
+  --space-3: 13.8px;
+  --space-4: 18.4px;
+  --space-6: 27.6px;
+  --space-8: 36.8px;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+
+  /* Sombras: tinta diluída no fundo claro (mais escuras com o escalonamento). */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+
+  /* A cor do "novo" no feed (a animação pulseNovo vai de 18% → 0%). */
+  --novo-bg: color-mix(in srgb, #a2503c 18%, transparent);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
 body {
-  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
-  background: var(--fundo);
-  color: var(--texto);
-  padding: 1.5rem;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  background: var(--color-bg);
+  color: var(--color-text);
+  /* Padding do "shell" do portal. A nav é sticky e ocupa a borda superior. */
+  min-height: 100vh;
 }
 
-.cabecalho {
+a { color: var(--color-accent); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Tipografia hierárquica — usar as tags <h1>..<h6> sem inflar manualmente. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 var(--space-2);
+}
+h1 { font-size: 34px; }
+h2 { font-size: 25px; }
+h3 { font-size: 20px; }
+h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+p { margin: 0 0 var(--space-3); }
+
+/* "Kicker" = aquela label em CAIXA ALTA com tracking, acima do título.
+   A classe .kicker define só o estilo; o componente põe o texto. */
+.kicker {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: normal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  margin: 0;
+}
+
+.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+
+/* Esconde visualmente sem tirar do fluxo de foco/tab nem do "accessibility
+   tree" — ao contrário de `display: none`/`visibility: hidden`, que tiram
+   o elemento do tab order e escondem de leitores de tela também. Usado nos
+   `<input type="radio">` do segmented control (`.seg`): o rótulo visível é
+   o `<label>`/`.seg-opt`, mas o radio PRECISA continuar focável/operável
+   por teclado (Tab entra, setas trocam a opção dentro do grupo).
+   docs: https://www.w3.org/WAI/tutorials/forms/labels/#note-on-hiding-elements */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--space-4) 0; }
+
+/* ─── Nav (sticky top) ───────────────────────────────────────────────
+   A nav é o "chrome" do app: marca + 4 rotas + resumo. Hairline embaixo
+   é o único separador do conteúdo. */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
+}
+.nav-brand {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 18px;
+  margin-right: auto;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.nav a.link {
+  color: inherit;
+  text-decoration: none;
+  font-size: 14px;
+}
+.nav a.link:hover { color: var(--color-accent); }
+.nav a.link[aria-current="page"] { color: var(--color-accent); }
+.nav .resumo {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  font-feature-settings: 'tnum';
+}
+
+/* Banner de API fora — borda 1px vermelho-tijolo, fundo tint 7%. */
+.banner-api-fora {
+  max-width: 1180px;
+  margin: 16px auto 0;
+  padding: 10px 16px;
+  border: 1px solid #a2503c;
+  border-radius: var(--radius-md);
+  color: #7c3a2e;
+  font-size: 13px;
+  background: color-mix(in srgb, #a2503c 7%, var(--color-bg));
+}
+
+/* ─── Shell da página ──────────────────────────────────────────────
+   `max-width: 1180px` para alinhar com o protótipo; padding generoso
+   em cima/baixo, hairline abaixo do header de tela. */
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 36px 24px 64px;
+}
+.shell.shell-narrow { max-width: 720px; }
+
+.tela-header {
   display: flex;
   align-items: baseline;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  padding-bottom: var(--space-4);
+  margin-bottom: 28px;
+}
+.tela-header h1 { font-size: 34px; margin: 0; }
+.tela-header .subtitulo { font-size: 13px; color: var(--color-neutral-600); }
+.tela-header .atualizado {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  font-feature-settings: 'tnum';
 }
 
-.cabecalho h1 {
-  font-size: 1.1rem;
-}
-
-.cabecalho .resumo {
-  color: var(--texto-fraco);
-  font-size: 0.85rem;
-}
-
-.erro-conexao {
-  background: color-mix(in srgb, var(--vermelho) 20%, var(--painel));
-  border: 1px solid var(--vermelho);
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 1rem;
-  font-size: 0.85rem;
-}
-
-.tabela-containers {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--painel);
-  border: 1px solid var(--borda);
-  border-radius: 8px;
-  overflow: hidden;
-  font-size: 0.85rem;
-}
-
-.tabela-containers th,
-.tabela-containers td {
+/* ─── Tabela de containers (Visão geral) ───────────────────────────
+   Sem fundo, hairline entre linhas, header small caps, numéricos tnum e
+   alinhados à direita. Hover = tint de texto 4% (não de accent — accent
+   é "traço", não preenche). */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; font-feature-settings: 'tnum'; }
+.table th {
   text-align: left;
-  padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid var(--borda);
-}
-
-.tabela-containers th {
-  color: var(--texto-fraco);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
   font-weight: normal;
-  text-transform: lowercase;
 }
-
-.tabela-containers tbody tr {
-  cursor: pointer;
+.table th.num, .table td.num { text-align: right; }
+.table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
 }
-
-.tabela-containers tbody tr:hover {
-  background: color-mix(in srgb, var(--borda) 50%, var(--painel));
-}
-
-.tabela-containers tr.selecionada {
-  background: color-mix(in srgb, var(--borda) 80%, var(--painel));
-}
+.table tbody tr { cursor: pointer; }
+.table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.table tbody tr.selecionada { background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.table td.nome { font-weight: 600; }
+.table td.status { color: var(--color-neutral-600); }
+.table td.vermelho { color: var(--sev-vermelho); }
 
 .bolinha {
   display: inline-block;
-  width: 0.65rem;
-  height: 0.65rem;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
+  vertical-align: middle;
 }
 
-.vazio {
-  color: var(--texto-fraco);
-  padding: 1rem;
+/* ─── Layout Visão geral (1fr 380px) ────────────────────────────── */
+.visao-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 36px;
+  align-items: start;
+}
+.visao-coluna-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.visao-coluna-titulo .subtitulo { font-size: 11px; color: var(--color-neutral-500); }
+.visao-aside { display: flex; flex-direction: column; gap: 28px; }
+.visao-nota { font-size: 12px; color: var(--color-neutral-500); margin-top: 10px; }
+
+/* ─── Card de Alertas ─────────────────────────────────────────────
+   Borda com "mistura" de accent: 45% accent + 55% divider, dando a
+   tonalidade quente do protótipo sem ser fill. Kicker em accent-700. */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+}
+.card-acento { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-divider)); }
+.card-kicker {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+}
+.alerta-item {
+  display: flex; gap: 8px; font-size: 13px; align-items: baseline;
+}
+.alerta-item .marca { color: var(--color-accent); }
+.alerta-item .msg { flex: 1; }
+.alerta-item .quando {
+  color: var(--color-neutral-500);
+  font-size: 11.5px;
+  white-space: nowrap;
+  font-feature-settings: 'tnum';
 }
 
-.painel-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+/* ─── Feed de erros ao vivo ────────────────────────────────────────
+   O feed é uma lista vertical com hairline entre itens; cada item tem
+   duas linhas (cabeçalho com NÍVEL+container+quando; linha de log em
+   mono). O "novo" anima um pulse de fundo (vermelho 18% → 0) em 2.2s. */
+.feed-titulo {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;
+}
+.feed-titulo .bolinha-aovivo {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sev-verde);
+}
+.feed-titulo .bolinha-aovivo.parado { background: var(--color-neutral-400); }
+.feed-lista {
+  display: flex; flex-direction: column;
+  max-height: 520px; overflow-y: auto;
+  border-top: 1px solid var(--color-divider);
+}
+.feed-item {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--color-divider);
+  cursor: pointer;
+}
+.feed-item:hover { background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
+.feed-item-linha1 {
+  display: flex; gap: 8px; align-items: baseline;
+}
+.feed-item-nivel {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+}
+.feed-item-container { font-size: 11.5px; color: var(--color-neutral-600); }
+.feed-item-quando {
+  margin-left: auto;
+  font-size: 11px; color: var(--color-neutral-500);
+  white-space: nowrap;
+  font-feature-settings: 'tnum';
+}
+.feed-item-linha2 {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-neutral-800);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.feed-item.novo { animation: pulseNovo 2.2s ease-out; }
+@keyframes pulseNovo {
+  from { background: var(--novo-bg); }
+  to { background: transparent; }
+}
+
+/* ─── Drawer de drill-down ─────────────────────────────────────────
+   560px (max 92vw) à direita, fundo var(--color-bg), hairline à esquerda,
+   shadow-lg. Backdrop é tint escuro. A entrada usa o mesmo padrão de
+   translateX(100%) → translateX(0) que o componente antigo. */
+.drawer-backdrop {
+  position: fixed; inset: 0;
+  background: color-mix(in srgb, #201f1d 35%, transparent);
   z-index: 19;
 }
-
-.painel-container {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: 420px;
-  max-width: 90vw;
-  background: var(--painel);
-  border-left: 1px solid var(--borda);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+.drawer {
+  position: fixed; top: 0; right: 0;
+  height: 100vh; width: 560px; max-width: 92vw;
+  background: var(--color-bg);
+  border-left: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-lg);
   z-index: 20;
-  display: flex;
-  flex-direction: column;
-  padding: 0.75rem;
-  /* Nasce fora da tela; a classe `aberto` (aplicada um frame depois de
-     montar, ver PainelContainer.tsx) dispara a transição de entrada. */
+  display: flex; flex-direction: column;
+  padding: 22px 24px;
   transform: translateX(100%);
   transition: transform 0.2s ease;
 }
+.drawer.aberto { transform: translateX(0); }
+.drawer-barra {
+  display: flex; align-items: center; gap: 14px;
+  border-bottom: 1px solid var(--color-divider);
+  padding-bottom: 14px; margin-bottom: 14px;
+}
+.drawer-barra h2 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 24px; margin: 0;
+}
+.drawer-kicker {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--color-neutral-600); margin-bottom: 8px;
+}
+.drawer-conteudo { flex: 1; overflow-y: auto; }
+.drawer-linha {
+  display: flex; gap: 10px;
+  padding: 6px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-divider) 55%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.drawer-linha .nivel {
+  flex-shrink: 0; width: 64px; font-weight: 600;
+}
+.drawer-linha .texto {
+  white-space: pre-wrap; word-break: break-all; color: var(--color-neutral-800);
+}
+.drawer-vazio { color: var(--color-neutral-500); font-size: 13px; padding: 16px 0; }
 
-.painel-container.aberto {
-  transform: translateX(0);
+/* ─── Form (Config + campos em geral) ─────────────────────────────
+   `field` = wrapper do label+input. `input` = a caixa em si. */
+.field > label {
+  display: block; font-size: 12px; margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.input {
+  width: 100%; min-height: 36px; padding: 6px 10px;
+  font: inherit; font-size: 14px; color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+.input:disabled { color: var(--color-neutral-500); cursor: not-allowed; }
+
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt.selected { color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.seg-opt:not(.selected):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+/* O `<input type="radio">` real fica visualmente escondido (classe
+   `.sr-only` abaixo), mas continua no fluxo de foco/tab e recebendo
+   eventos de teclado (setas trocam o radio selecionado dentro do grupo) —
+   `display: none` faria o elemento sumir do DOM de acessibilidade e
+   quebraria tab/setas e o `:focus-visible`. O anel de foco aparece no
+   `.seg-opt` (o label visível) via `:has()`, que observa o estado do
+   radio filho sem precisar de JS. */
+.seg-opt:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
-.painel-container .barra {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn-primary { color: var(--color-accent); border-color: var(--color-accent); }
+.btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+
+/* ─── Histórico (strip 24h) ─────────────────────────────────────── */
+.historico-linha {
+  display: grid;
+  grid-template-columns: 130px 1fr 70px;
+  gap: 16px; align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+.historico-nome { font-weight: 600; font-size: 14px; }
+.historico-strip {
+  display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px;
+}
+.historico-celula {
+  height: 22px; border-radius: 2px;
+  border: 1px solid var(--color-divider);
+}
+.historico-total {
+  text-align: right;
+  font-feature-settings: 'tnum';
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.historico-rodape {
+  display: flex; gap: 14px; align-items: center;
+  margin-top: 14px; font-size: 11.5px; color: var(--color-neutral-500);
+}
+.historico-legenda { display: flex; gap: 3px; align-items: center; margin-left: 20px; }
+.historico-legenda .quad {
+  width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--color-divider);
 }
 
-.painel-container select {
-  background: var(--fundo);
-  color: var(--texto);
-  border: 1px solid var(--borda);
-  border-radius: 4px;
-  padding: 0.2rem 0.4rem;
-  font: inherit;
+/* ─── IA · custos ──────────────────────────────────────────────── */
+.kpis {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  margin-bottom: 36px;
+}
+.kpi {
+  padding: 18px 20px;
+  border-right: 1px solid var(--color-divider);
+}
+.kpi:last-child { border-right: none; }
+.kpi-kicker {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+.kpi-valor {
+  font-family: var(--font-heading); font-size: 34px;
+  font-feature-settings: 'tnum'; margin-top: 4px;
+}
+.kpi-secundario {
+  font-size: 12px; color: var(--color-neutral-500);
+  font-feature-settings: 'tnum';
+}
+.ia-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start;
+}
+.heatmap {
+  display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 18px); gap: 4px;
+}
+.heatmap-rotulos {
+  display: grid; grid-template-rows: repeat(7, 18px); gap: 4px;
+  font-size: 10px; color: var(--color-neutral-500); align-items: center;
+}
+.heatmap-celula {
+  width: 18px; height: 18px; border-radius: 3px;
+  border: 1px solid var(--color-divider);
+}
+.heatmap-celula.futuro { background: transparent; }
+.heatmap-linha {
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.barra-trilho { height: 10px; background: var(--color-neutral-200); border-radius: 2px; }
+.barra-preenchimento { height: 100%; border-radius: 2px; background: var(--color-accent); }
+.semanas-linha {
+  display: grid; grid-template-columns: 90px 1fr 70px; gap: 12px; align-items: center;
+  font-size: 13px;
+}
+.semanas-rotulo { color: var(--color-neutral-600); font-feature-settings: 'tnum'; }
+.semanas-valor { text-align: right; font-feature-settings: 'tnum'; }
+.ia-nota {
+  font-size: 12px; color: var(--color-neutral-500); margin-top: 12px; text-align: justify;
 }
 
-.painel-container button {
-  margin-left: auto;
-  background: none;
-  border: 1px solid var(--borda);
-  border-radius: 4px;
-  color: var(--texto-fraco);
-  padding: 0.2rem 0.6rem;
-  cursor: pointer;
-  font: inherit;
+/* ─── Configuração ─────────────────────────────────────────────── */
+.config-form { display: flex; flex-direction: column; gap: 22px; }
+.config-grid-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
 }
-
-.linhas-log {
-  list-style: none;
-  flex: 1;
-  overflow-y: auto;
-  font-size: 0.78rem;
+.config-acoes {
+  display: flex; gap: 10px; border-top: 1px solid var(--color-divider); padding-top: 22px;
 }
+.caminho-mono { font-family: var(--font-mono); }
 
-.linhas-log li {
-  padding: 0.15rem 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--borda) 40%, transparent);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.alertas {
-  list-style: none;
-  margin-bottom: 1rem;
-  font-size: 0.85rem;
-}
-
-.alertas li {
-  padding: 0.25rem 0;
-  color: var(--amarelo);
-}
-
-/* Feed global de erros — acima da tabela, primeira coisa ao abrir. */
-.feed-erros {
-  margin-bottom: 1rem;
-  background: var(--painel);
-  border: 1px solid var(--borda);
-  border-radius: 8px;
-  padding: 0.6rem 0.75rem;
-}
-
-.feed-erros h2 {
-  font-size: 0.8rem;
-  font-weight: normal;
-  color: var(--texto-fraco);
-  text-transform: lowercase;
-  margin-bottom: 0.4rem;
-}
-
-.feed-erros ul {
-  list-style: none;
-  max-height: 14rem;
-  overflow-y: auto;
-  font-size: 0.8rem;
-}
-
-.feed-erros li {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.28rem 0.35rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--borda) 40%, transparent);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  border-radius: 4px;
-  transition: background 0.4s ease;
-}
-
-.feed-erros li:hover {
-  background: color-mix(in srgb, var(--borda) 50%, var(--painel));
-}
-
-/* Destaque temporário (~2s) quando o item acaba de chegar no poll. */
-.feed-erros li.novo {
-  background: color-mix(in srgb, var(--vermelho) 22%, var(--painel));
-}
-
-.feed-erros .feed-container {
-  color: var(--texto-fraco);
-  flex-shrink: 0;
-}
-
-.feed-erros .feed-nivel {
-  flex-shrink: 0;
-  font-size: 0.75rem;
-  min-width: 4.5rem;
-}
-
-.feed-erros .feed-linha {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.feed-erros .feed-quando {
-  color: var(--texto-fraco);
-  flex-shrink: 0;
-  font-size: 0.75rem;
+/* ─── Vazios / placeholders ─────────────────────────────────────── */
+.vazio {
+  color: var(--color-neutral-500);
+  font-size: 13px;
+  padding: var(--space-4) 0;
 }

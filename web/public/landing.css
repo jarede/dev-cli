@@ -1,0 +1,199 @@
+/* Landing page — subset dos tokens do design system Classical, só com o
+   que a página estática precisa. O portal React (web/src/index.css) tem
+   a versão completa; aqui mantemos o mínimo para a landing ficar
+   autocontida. */
+
+:root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201f1d;
+  --color-divider: color-mix(in srgb, #201f1d 16%, transparent);
+  --color-accent: #b68235;
+
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-accent-700: #7d5411;
+  --color-accent-800: #5a3b0a;
+
+  --font-heading: "Cormorant Garamond", system-ui, serif;
+  --font-heading-weight: 600;
+  --font-body: "Lora", system-ui, serif;
+  --font-mono: ui-monospace, Menlo, "Cascadia Code", monospace;
+
+  --space-2: 9.2px;
+  --space-3: 13.8px;
+  --space-4: 18.4px;
+  --space-6: 27.6px;
+  --space-8: 36.8px;
+
+  --radius-md: 4px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+a { color: var(--color-accent); text-decoration: none; text-underline-offset: 3px; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 var(--space-3);
+}
+
+p { margin: 0 0 var(--space-3); }
+
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Botões (mesmo padrão do portal) */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn:hover { text-decoration: none; }
+.btn-primary { color: var(--color-accent); border-color: var(--color-accent); }
+.btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-2); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+
+/* Nav topo */
+.nav {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+.nav-brand {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 18px; color: var(--color-text);
+}
+.nav a { color: var(--color-text); font-size: 14px; }
+.nav a:hover { color: var(--color-accent); }
+.nav-cta { margin-left: auto; }
+
+/* Hero */
+.hero {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 88px 24px 64px;
+  text-align: center;
+}
+.hero-kicker {
+  font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--color-accent-700);
+  margin-bottom: var(--space-4);
+}
+.hero h1 {
+  font-weight: 400; /* display usa o corte normal, não o semibold */
+  font-size: 64px;
+  line-height: 1.08;
+  margin: 0 0 22px;
+  text-wrap: balance;
+}
+.hero-sub {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  max-width: 56ch;
+  margin: 0 auto 34px;
+  text-align: justify;
+  text-align-last: center;
+}
+.hero-ctas { display: flex; gap: 12px; justify-content: center; }
+
+/* Plate (screenshot placeholder) */
+.screenshot-wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+.plate {
+  margin: 0;
+  border: 6px solid var(--color-surface);
+  outline: 1px solid var(--color-divider);
+  filter: sepia(0.22) saturate(0.82) contrast(1.05);
+}
+.screenshot-placeholder {
+  aspect-ratio: 16 / 8;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px;
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  font-size: 13px;
+}
+.screenshot-cmd { font-family: var(--font-mono); font-size: 12px; }
+
+/* "Três frentes, um binário" */
+.recursos { max-width: 980px; margin: 0 auto; padding: 72px 24px; }
+.recursos h2 {
+  font-size: 32px;
+  border-bottom: 1px solid var(--color-divider);
+  padding-bottom: 16px;
+  margin: 0 0 30px;
+}
+.recursos-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
+.recurso { padding: 0 28px; border-right: 1px solid var(--color-divider); }
+.recurso:first-child { padding-left: 0; }
+.recurso:last-child { padding-right: 0; border-right: none; }
+.recurso-titulo {
+  font-family: var(--font-heading); font-size: 22px; margin-bottom: 10px;
+}
+.recurso p {
+  font-size: 14px; line-height: 1.7; color: var(--color-neutral-700);
+  text-align: justify; margin: 0;
+}
+
+/* Instalação */
+.instalacao { max-width: 720px; margin: 0 auto; padding: 24px 24px 88px; }
+.instalacao h2 { font-size: 32px; margin: 0 0 8px; }
+.instalacao-sub { font-size: 14px; color: var(--color-neutral-600); margin: 0 0 24px; }
+.instalacao-cards { display: flex; flex-direction: column; gap: 16px; }
+.card {
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+}
+.card-kicker {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--color-neutral-600);
+  margin-bottom: 8px;
+}
+.card pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* Rodapé */
+.rodape { border-top: 1px solid var(--color-divider); }
+.rodape-inner {
+  max-width: 980px; margin: 0 auto; padding: 24px;
+  display: flex; gap: 16px;
+  font-size: 12.5px; color: var(--color-neutral-600);
+}
+.rodape-nota { margin-left: auto; }
+
+/* Responsivo: 3 colunas viram 1 em telas estreitas. */
+@media (max-width: 720px) {
+  .hero h1 { font-size: 44px; }
+  .recursos-grid { grid-template-columns: 1fr; }
+  .recurso { padding: 0; border-right: none; border-bottom: 1px solid var(--color-divider); padding-bottom: 20px; margin-bottom: 20px; }
+  .recurso:last-child { border-bottom: none; }
+  .rodape-inner { flex-direction: column; gap: 4px; }
+  .rodape-nota { margin-left: 0; }
+}

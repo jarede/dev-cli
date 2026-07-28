@@ -23,3 +23,132 @@ export function formatarHaQuanto(tsUnix: number, agoraMs: number = Date.now()): 
   if (seg < 3600) return `há ${Math.floor(seg / 60)}min`
   return `há ${Math.floor(seg / 3600)}h`
 }
+
+/**
+ * Formata um timestamp Unix (segundos, sempre início de hora — múltiplo
+ * de 3600, como `CelulaHistorico.hora`) como "HHh" — usado no tooltip do
+ * strip de Histórico ("14h · 5 erros/críticos"). Usa UTC (`getUTCHours`),
+ * não o fuso local: o agrupamento por hora no servidor
+ * (`(collected_at / 3600) * 3600`) já opera sobre o timestamp Unix cru, ou
+ * seja, em fronteiras de hora UTC — formatar em UTC aqui mantém o rótulo
+ * consistente com a fronteira real da célula (e a função determinística
+ * nos testes, sem depender do fuso horário de quem roda `npm test`).
+ */
+export function formatarHora(tsUnix: number): string {
+  const d = new Date(tsUnix * 1000)
+  return `${String(d.getUTCHours()).padStart(2, '0')}h`
+}
+
+/** Nomes "longos" de moeda para a UI da tela IA · custos. */
+export type Moeda = 'US$' | 'R$'
+
+/**
+ * Insere separador de milhar numa string numérica não-negativa já formatada
+ * com ponto decimal (ex.: "1234.56" -> comSeparador "." dá "1.234,56" com
+ * `separadorDecimal: ','`). Regex pura, sem `Intl.NumberFormat`, de
+ * propósito — o objetivo é manter `formatarMoeda` 100% determinística nos
+ * testes, sem depender do locale/ICU disponível no ambiente que roda
+ * `npm test` (CI, máquinas diferentes...).
+ * `\B(?=(\d{3})+(?!\d))`: casa toda posição ENTRE dígitos (`\B`) que tenha
+ * um múltiplo de 3 dígitos até o fim da parte inteira à frente — é onde o
+ * separador de milhar entra.
+ */
+function comSeparadorDeMilhar(
+  valorAbsoluto: string,
+  separadorMilhar: string,
+  separadorDecimal: string,
+): string {
+  const [inteiro, decimal] = valorAbsoluto.split('.')
+  const inteiroComSeparador = inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, separadorMilhar)
+  return decimal !== undefined ? `${inteiroComSeparador}${separadorDecimal}${decimal}` : inteiroComSeparador
+}
+
+/**
+ * Formata um valor em USD na moeda pedida, com separador de milhar (pt-br:
+ * "1.010,29"; US$: "1,010.40"). Padrão "R$" (escolha do usuário ao revisar
+ * o protótipo) — `moeda: 'US$'` mostra o valor original e o equivalente em
+ * R$ na linha secundária.
+ */
+export function formatarMoeda(
+  usd: number,
+  cambio: number,
+  moeda: Moeda = 'R$',
+  opcoes: { comCentavos?: boolean } = {},
+): string {
+  const { comCentavos = true } = opcoes
+  const valor = moeda === 'US$' ? usd : usd * cambio
+  const sinal = valor < 0 ? '-' : ''
+  const bruto = Math.abs(valor).toFixed(comCentavos ? 2 : 0)
+  if (moeda === 'US$') {
+    return `US$ ${sinal}${comSeparadorDeMilhar(bruto, ',', '.')}`
+  }
+  return `R$ ${sinal}${comSeparadorDeMilhar(bruto, '.', ',')}`
+}
+
+/** Compacta um número grande com sufixo: 1_234_567 -> "1.2M". */
+export function formatarNumeroCompacto(valor: number): string {
+  if (valor >= 1_000_000_000) return `${(valor / 1_000_000_000).toFixed(1)}B`
+  if (valor >= 1_000_000) return `${(valor / 1_000_000).toFixed(1)}M`
+  if (valor >= 1_000) return `${(valor / 1_000).toFixed(1)}k`
+  return String(valor)
+}
+
+/** Minutos → "HhMm": 65 → "1h05m", 90 → "1h30m". */
+export function formatarHorasMinutos(minutos: number): string {
+  if (minutos <= 0) return '0h00m'
+  const h = Math.floor(minutos / 60)
+  const m = Math.round(minutos % 60)
+  return `${h}h${String(m).padStart(2, '0')}m`
+}
+
+/**
+ * Cor CSS de uma severidade (variáveis do index.css).
+ * Record: força TODAS as variantes de `Severidade` no map — o TS acusa
+ * se o portal acrescentar uma severidade nova e esquecer a cor.
+ * docs: https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type
+ */
+export const COR_SEVERIDADE: Record<import('./tipos').Severidade, string> = {
+  Verde: 'var(--sev-verde)',
+  Amarelo: 'var(--sev-amarelo)',
+  Vermelho: 'var(--sev-vermelho)',
+  Parado: 'var(--sev-parado)',
+}
+
+/**
+ * Cor CSS para um nível de log (string crua do banco: ERROR, INFO...).
+ * Centraliza o mapeamento que estava espalhado entre FeedErros e
+ * PainelContainer — agora uma alteração aqui reflete nas duas telas.
+ *
+ * A lista de níveis "erro/crítico" abaixo é uma cópia PROPOSITAL da
+ * constante `nucleo::db::NIVEIS_ERRO` (Rust) — cruzar a fronteira
+ * TS/Rust com uma constante compartilhada de verdade exigiria gerar este
+ * arquivo ou embutir o JSON em build, o que não vale a pena para 5
+ * strings. `nucleo::db::NIVEIS_ERRO` é a FONTE DA VERDADE; se um nível
+ * novo for adicionado lá (`erros_desde`/`historico_por_hora`), atualize
+ * aqui também.
+ */
+export function corNivel(nivel: string): string {
+  const n = nivel.toUpperCase()
+  if (n === 'ERROR' || n === 'ERRO' || n === 'CRIT' || n === 'CRITICAL' || n === 'FATAL') {
+    return 'var(--sev-vermelho)'
+  }
+  if (n === 'WARNING' || n === 'WARN') return 'var(--color-accent-700)'
+  return 'var(--color-neutral-500)'
+}
+
+/**
+ * Mapeia uma intensidade 0..=5 (escala do heatmap) para a cor CSS
+ * correspondente. Mesma escala do protótipo .dc.html: vai do neutro
+ * 200 (sem atividade) até vermelho-tijolo (pico).
+ */
+export function intensidadeParaCor(intensidade: number): string {
+  switch (intensidade) {
+    case 0: return 'var(--color-neutral-200)'
+    case 1: return 'var(--color-accent-100)'
+    case 2: return 'var(--color-accent-200)'
+    case 3: return 'var(--color-accent-400)'
+    case 4: return 'var(--color-accent-600)'
+    case 5: return '#a2503c'
+    default: return 'var(--color-neutral-200)'
+  }
+}

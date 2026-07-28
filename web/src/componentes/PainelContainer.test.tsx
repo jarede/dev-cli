@@ -41,7 +41,7 @@ describe('PainelContainer', () => {
     buscarLinhasFalso.mockResolvedValue([])
     render(<PainelContainer nome="app" nivelInicial="ERROR" aoFechar={() => {}} />)
 
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
     expect(buscarLinhasFalso).toHaveBeenCalledWith('app', 'ERROR')
     expect(screen.getByRole('combobox')).toHaveValue('ERROR')
   })
@@ -54,7 +54,7 @@ describe('PainelContainer', () => {
     buscarLinhasFalso.mockResolvedValue([])
     render(<PainelContainer nome="app" nivelInicial="CRIT" aoFechar={() => {}} />)
 
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
     expect(buscarLinhasFalso).toHaveBeenCalledWith('app', 'CRIT')
     expect(screen.getByRole('combobox')).toHaveValue('CRIT')
   })
@@ -62,21 +62,21 @@ describe('PainelContainer', () => {
   it('trocar o nível refaz a busca com o filtro', async () => {
     buscarLinhasFalso.mockResolvedValue([])
     render(<PainelContainer nome="app" aoFechar={() => {}} />)
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ERROR' } })
 
-    expect(await screen.findByText(/nenhuma linha/)).toBeInTheDocument()
+    expect(await screen.findByText(/Nenhuma linha/i)).toBeInTheDocument()
     expect(buscarLinhasFalso).toHaveBeenLastCalledWith('app', 'ERROR')
   })
 
-  it('botão fechar chama aoFechar', async () => {
+  it('botão Fechar chama aoFechar', async () => {
     buscarLinhasFalso.mockResolvedValue([])
     const aoFechar = vi.fn()
     render(<PainelContainer nome="app" aoFechar={aoFechar} />)
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
 
-    fireEvent.click(screen.getByText('fechar'))
+    fireEvent.click(screen.getByText('Fechar'))
     expect(aoFechar).toHaveBeenCalled()
   })
 
@@ -84,7 +84,7 @@ describe('PainelContainer', () => {
     buscarLinhasFalso.mockResolvedValue([])
     const aoFechar = vi.fn()
     render(<PainelContainer nome="app" aoFechar={aoFechar} />)
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(aoFechar).toHaveBeenCalled()
@@ -94,9 +94,9 @@ describe('PainelContainer', () => {
     buscarLinhasFalso.mockResolvedValue([])
     const aoFechar = vi.fn()
     const { container } = render(<PainelContainer nome="app" aoFechar={aoFechar} />)
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
 
-    const backdrop = container.querySelector('.painel-backdrop')
+    const backdrop = container.querySelector('.drawer-backdrop')
     expect(backdrop).toBeInTheDocument()
     fireEvent.click(backdrop!)
     expect(aoFechar).toHaveBeenCalled()
@@ -106,7 +106,7 @@ describe('PainelContainer', () => {
     buscarLinhasFalso.mockResolvedValue([])
     const aoFechar = vi.fn()
     render(<PainelContainer nome="app" aoFechar={aoFechar} />)
-    await screen.findByText(/nenhuma linha/)
+    await screen.findByText(/Nenhuma linha/i)
 
     // Clicar no <select> (dentro da gaveta) não deve propagar pro backdrop.
     fireEvent.click(screen.getByRole('combobox'))

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buscarAlertas, buscarContainers, buscarErros, buscarLinhas } from './api'
+import {
+  buscarAlertas,
+  buscarCambio,
+  buscarConfig,
+  buscarContainers,
+  buscarCustosIa,
+  buscarErros,
+  buscarHistorico,
+  buscarLinhas,
+} from './api'
 
 /// Uma Response de sucesso com corpo JSON (o objeto Response do fetch
 /// existe no jsdom/node moderno — não precisa de mock de biblioteca).
@@ -77,5 +86,72 @@ describe('cliente da API', () => {
     await buscarErros(0, 50)
 
     expect(fetchFalso).toHaveBeenCalledWith('/api/erros?desde_id=0&limite=50')
+  })
+
+  it('buscarHistorico usa horas=24 como default', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson([]))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarHistorico()
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/containers/historico?horas=24')
+  })
+
+  it('buscarHistorico propaga horas customizado', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson([]))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarHistorico(6)
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/containers/historico?horas=6')
+  })
+
+  it('buscarCustosIa sem mes chama o endpoint sem query', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson({}))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarCustosIa()
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/ia/custos')
+  })
+
+  it('buscarCustosIa propaga mes escapando caracteres', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson({}))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarCustosIa('2026-07')
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/ia/custos?mes=2026-07')
+  })
+
+  it('buscarCambio chama o endpoint fixo', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson({ usd_brl: 5.42 }))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    const cambio = await buscarCambio()
+    expect(fetchFalso).toHaveBeenCalledWith('/api/ia/cambio')
+    expect(cambio.usd_brl).toBe(5.42)
+  })
+
+  it('buscarConfig chama /api/config e devolve o JSON', async () => {
+    const configFalsa = {
+      coleta: {
+        intervalo_seg: 60,
+        janela_min: 15,
+        retencao_horas: 24,
+        tail_inicial: 1000,
+        db: '',
+        ssh: '',
+      },
+      limiares: { p95_lento_seg: 1.0, taxa_erro_pct: 5.0 },
+      servidor: { bind: '127.0.0.1:8787', portal_dir: '' },
+    }
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson(configFalsa))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    const config = await buscarConfig()
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/config')
+    expect(config.servidor.bind).toBe('127.0.0.1:8787')
   })
 })

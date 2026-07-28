@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>dev-cli — Os seus logs e os seus custos de IA, num só binário.</title>
+  <link rel="stylesheet" href="/landing.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Lora:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="page">
+    <nav class="nav">
+      <a class="nav-brand" href="/">dev-cli</a>
+      <a href="#recursos">Recursos</a>
+      <a href="#instalar">Instalação</a>
+      <a href="https://github.com/jarede/dev-cli">GitHub</a>
+      <a href="/" class="btn btn-primary nav-cta">Ver o portal</a>
+    </nav>
+
+    <header class="hero">
+      <div class="hero-kicker">Um canivete suíço em Rust, escrito para aprender</div>
+      <h1>Os seus logs e os seus custos de IA, num só binário.</h1>
+      <p class="hero-sub">
+        O dev-cli acompanha os containers da sua VM — erros, 5xx, p95 — num dashboard
+        de terminal ou num portal web, e ainda fecha a conta do mês com o Claude Code
+        e o OpenCode, em dólar e em real.
+      </p>
+      <div class="hero-ctas">
+        <a href="#instalar" class="btn btn-primary">brew install dev-cli</a>
+        <a href="#recursos" class="btn btn-ghost">Como funciona</a>
+      </div>
+    </header>
+
+    <div class="screenshot-wrap">
+      <figure class="plate">
+        <div class="screenshot-placeholder">
+          <span class="screenshot-cmd">$ dev-cli logs dashboard</span>
+          <span>captura do dashboard TUI — substituir por screenshot real</span>
+        </div>
+      </figure>
+    </div>
+
+    <section id="recursos" class="recursos">
+      <h2>Três frentes, um binário</h2>
+      <div class="recursos-grid">
+        <div class="recurso">
+          <div class="recurso-titulo">Logs ao vivo</div>
+          <p>
+            Coleta contínua dos containers — docker local ou via SSH — com containers
+            ranqueados por severidade, drill-down por nível e alertas quando algo para
+            ou reinicia.
+          </p>
+        </div>
+        <div class="recurso">
+          <div class="recurso-titulo">Portal web</div>
+          <p>
+            O dev-server expõe a mesma coleta numa API JSON e serve o portal no
+            navegador: feed de erros em tempo real, tabela de containers e histórico
+            por hora.
+          </p>
+        </div>
+        <div class="recurso">
+          <div class="recurso-titulo">Custos de IA</div>
+          <p>
+            Heatmap de atividade, streaks e custo por modelo do OpenCode e do Claude
+            Code — lidos direto dos arquivos locais, convertidos pela cotação do dia.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="instalar" class="instalacao">
+      <h2>Instalação</h2>
+      <p class="instalacao-sub">Binários para macOS, Linux e Windows em cada release — com checksums.</p>
+      <div class="instalacao-cards">
+        <div class="card">
+          <div class="card-kicker">macOS e Linux — Homebrew</div>
+          <pre>brew tap jarede/dev-cli https://github.com/jarede/dev-cli
+brew install dev-cli</pre>
+        </div>
+        <div class="card">
+          <div class="card-kicker">Windows — Scoop</div>
+          <pre>scoop bucket add dev-cli https://github.com/jarede/dev-cli
+scoop install dev-cli</pre>
+        </div>
+        <div class="card">
+          <div class="card-kicker">A partir do código-fonte</div>
+          <pre>cargo install --git https://github.com/jarede/dev-cli</pre>
+        </div>
+      </div>
+    </section>
+
+    <footer class="rodape">
+      <div class="rodape-inner">
+        <span>MIT © 2026 Jarede Silva</span>
+        <span class="rodape-nota">Um projeto de aprendizado de Rust — código comentado de forma didática.</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

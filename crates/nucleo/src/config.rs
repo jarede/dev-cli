@@ -10,9 +10,13 @@
 use std::path::{Path, PathBuf};
 
 // `Deserialize`: derive do serde que gera o código de conversão
-// TOML -> struct em tempo de compilação.
+// TOML -> struct em tempo de compilação. `Serialize` (o inverso) permite
+// devolver a config efetiva como JSON — usado pelo endpoint
+// `GET /api/config` do dev-server (a tela Configuração do portal lê a
+// config REAL do servidor em vez de mostrar valores chumbados).
 // docs: https://docs.rs/serde/latest/serde/trait.Deserialize.html
-use serde::Deserialize;
+// docs: https://docs.rs/serde/latest/serde/trait.Serialize.html
+use serde::{Deserialize, Serialize};
 
 /// Configuração completa, espelhando o arquivo TOML:
 ///
@@ -36,7 +40,7 @@ use serde::Deserialize;
 // `#[serde(default)]`: se uma seção/campo faltar no TOML, usa o `Default`
 // correspondente em vez de falhar — permite arquivos parciais.
 // docs: https://serde.rs/container-attrs.html#default
-#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub coleta: Coleta,
@@ -45,7 +49,7 @@ pub struct Config {
 }
 
 /// Parâmetros da coleta de logs.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Coleta {
     /// Segundos entre um ciclo de coleta e o próximo.
@@ -80,7 +84,7 @@ impl Default for Coleta {
 }
 
 /// Limiares que separam verde/amarelo/vermelho no dashboard.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Limiares {
     /// p95 de tempo de resposta (segundos) acima do qual o container fica amarelo.
@@ -99,7 +103,7 @@ impl Default for Limiares {
 }
 
 /// Configuração do servidor HTTP (`crates/servidor`, Fase 2).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Servidor {
     /// Endereço de escuta da API ("host:porta"). Localhost por padrão:

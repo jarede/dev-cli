@@ -6,7 +6,25 @@ use std::collections::BTreeMap;
 use rusqlite::Connection;
 
 use crate::core::LoguruEntry;
-use crate::metricas::{ResumoContainer, p95};
+use crate::metricas::{ResumoContainer, intensidade_log, p95};
+
+/// Níveis considerados "erro/crítico" nas consultas que cruzam containers
+/// (`erros_desde` e `historico_por_hora`). Fonte única de verdade: antes
+/// cada query tinha sua própria cópia literal desta lista em SQL — mudar um
+/// nível (ex.: adicionar uma abreviação nova) exigia lembrar de editar os
+/// dois lugares. `clausula_niveis_erro` monta o SQL `IN (...)` a partir
+/// desta constante.
+pub const NIVEIS_ERRO: [&str; 5] = ["ERROR", "ERRO", "CRIT", "CRITICAL", "FATAL"];
+
+/// Monta a cláusula `IN ('ERROR','ERRO',...)` a partir de `NIVEIS_ERRO`,
+/// pronta para ser colada num SQL literal. Os valores são constantes
+/// definidas neste arquivo (não entrada do usuário), então concatenar
+/// direto na string aqui não abre brecha de SQL injection — os parâmetros
+/// vindos de fora continuam passando por `?N`/`params!`.
+fn clausula_niveis_erro() -> String {
+    let niveis: Vec<String> = NIVEIS_ERRO.iter().map(|n| format!("'{n}'")).collect();
+    format!("({})", niveis.join(","))
+}
 
 /// Cria as tabelas do banco se não existirem e executa migrações.
 // docs: https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html#method.execute_batch
@@ -348,25 +366,26 @@ pub fn erros_desde(
         })
     };
 
+    let niveis = clausula_niveis_erro();
     if desde_id <= 0 {
         // Bootstrap: pega os mais novos (DESC) e inverte para ASC — o
         // cliente avança o cursor com `lote.last().id` sem caso especial.
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare(&format!(
             "SELECT id, container_name, level, line, collected_at FROM log_lines
-             WHERE level IN ('ERROR','ERRO','CRIT','CRITICAL','FATAL')
-             ORDER BY id DESC LIMIT ?1",
-        )?;
+             WHERE level IN {niveis}
+             ORDER BY id DESC LIMIT ?1"
+        ))?;
         let erros = stmt.query_map(rusqlite::params![limite as i64], mapear)?;
         let mut lote: Vec<ErroLog> = erros.filter_map(|r| r.ok()).collect();
         lote.reverse();
         return Ok(lote);
     }
 
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT id, container_name, level, line, collected_at FROM log_lines
-         WHERE id > ?1 AND level IN ('ERROR','ERRO','CRIT','CRITICAL','FATAL')
-         ORDER BY id ASC LIMIT ?2",
-    )?;
+         WHERE id > ?1 AND level IN {niveis}
+         ORDER BY id ASC LIMIT ?2"
+    ))?;
     let erros = stmt.query_map(rusqlite::params![desde_id, limite as i64], mapear)?;
     Ok(erros.filter_map(|r| r.ok()).collect())
 }
@@ -379,6 +398,129 @@ pub struct Alerta {
     pub tipo: String,
     pub mensagem: String,
     pub criado_em: i64,
+}
+
+/// Uma célula do histórico por hora: contagem de erros+críticos naquela
+/// hora específica. A intensidade (0–5) é derivada no portal a partir de
+/// `quantidade` (mesma escala de cores do heatmap do design Classical).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CelulaHistorico {
+    /// Timestamp Unix (segundos) do INÍCIO da hora (sempre múltiplo de 3600).
+    pub hora: i64,
+    pub quantidade: i64,
+    /// Intensidade 0..=5 já calculada no servidor (escala log, relativa ao
+    /// maior `quantidade` de toda a resposta) — o portal só pinta, não
+    /// recalcula. Antes o cliente reimplementava essa conta com faixas
+    /// fixas chumbadas na JSX (`n <= 2 ? 1 : ...`); centralizar aqui evita
+    /// as duas escalas divergirem. Ver `crate::metricas::intensidade_log`,
+    /// a MESMA função usada pelo heatmap mensal de custos de IA.
+    pub intensidade: u8,
+}
+
+/// Linha do histórico de um container: nome + 24 células (mais recente
+/// primeiro). `total` é a soma das 24 células, para o "X" à direita do strip.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HistoricoContainer {
+    pub nome: String,
+    pub horas: Vec<CelulaHistorico>,
+    pub total: i64,
+}
+
+/// Carrega, para cada container conhecido, a contagem de erros+críticos
+/// agrupada por hora nas últimas `janela_horas` horas (default 24).
+///
+/// A consulta agrega direto em SQL (`strftime('%H', ts, 'unixepoch')`) e
+/// depois "preenche" as horas faltantes com `quantidade = 0` no Rust, para
+/// o portal sempre receber 24 células por container (alinhadas, índice 0 =
+/// hora mais recente, índice 23 = a mais antiga da janela).
+///
+/// Containers sem NENHUM erro/crítico na janela também aparecem, com todas
+/// as células zeradas — o strip do portal deve mostrar mesmo container
+/// "limpo" para a comparação visual ficar justa.
+pub fn historico_por_hora(
+    conn: &Connection,
+    janela_horas: i64,
+    agora: i64,
+) -> Result<Vec<HistoricoContainer>, Box<dyn std::error::Error>> {
+    // SQL: uma linha por (container, hora_inicio) com a soma de erros+críticos.
+    // (hora_inicio = floor(ts/3600)*3600) agrupa pelo INÍCIO da hora
+    // (alinhado, fácil de exibir como "14h", "15h"...).
+    let niveis = clausula_niveis_erro();
+    let mut stmt = conn.prepare(&format!(
+        "SELECT lc.container_name,
+                (lc.collected_at / 3600) * 3600 AS hora_inicio,
+                COALESCE(SUM(lc.count), 0) AS qtd
+         FROM log_counts lc
+         WHERE lc.level IN {niveis}
+           AND lc.collected_at >= ?1
+         GROUP BY lc.container_name, hora_inicio
+         ORDER BY lc.container_name, hora_inicio DESC"
+    ))?;
+    let corte = agora - janela_horas * 3600;
+    // Mapa: nome -> mapa hora_inicio -> qtd (preenchido pelo SQL).
+    let mut por_container: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<i64, i64>,
+    > = std::collections::BTreeMap::new();
+    let linhas = stmt.query_map(rusqlite::params![corte], |linha| {
+        let nome: String = linha.get(0)?;
+        let hora: i64 = linha.get(1)?;
+        let qtd: i64 = linha.get(2)?;
+        Ok((nome, hora, qtd))
+    })?;
+    for linha in linhas {
+        let (nome, hora, qtd) = linha?;
+        por_container.entry(nome).or_default().insert(hora, qtd);
+    }
+
+    // Garante que TODOS os containers conhecidos apareçam, mesmo sem erros.
+    let mut nomes: Vec<String> = conn
+        .prepare("SELECT name FROM containers")?
+        .query_map([], |r| r.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for nome in por_container.keys() {
+        if !nomes.contains(nome) {
+            nomes.push(nome.clone());
+        }
+    }
+    nomes.sort();
+
+    // Maior `qtd` de TODAS as células (todos os containers, todas as
+    // horas) — a referência "5 = pico" da escala de intensidade. Um único
+    // máximo global (em vez de um por container) deixa a cor comparável
+    // entre containers: "o pior momento do container A" só fica vermelho
+    // se for realmente o pior de TODOS, não só do próprio A.
+    let maximo: i64 = por_container
+        .values()
+        .flat_map(|horas| horas.values())
+        .copied()
+        .max()
+        .unwrap_or(0);
+
+    // Monta o output: para cada container, gera as N horas (mais recente
+    // primeiro), com `quantidade = 0` nas horas sem dados.
+    let mut resultado = Vec::with_capacity(nomes.len());
+    for nome in nomes {
+        let contagens = por_container.get(&nome).cloned().unwrap_or_default();
+        let mut horas = Vec::with_capacity(janela_horas as usize);
+        let mut total: i64 = 0;
+        // `i` em 0..janela_horas: 0 = hora atual, janela_horas-1 = mais antiga.
+        for i in 0..janela_horas {
+            // Alinhado no início da hora: agora-3600*i, arredondado para
+            // baixo até o múltiplo de 3600 mais próximo.
+            let hora_inicio = (agora / 3600) * 3600 - i * 3600;
+            let qtd = contagens.get(&hora_inicio).copied().unwrap_or(0);
+            total += qtd;
+            horas.push(CelulaHistorico {
+                hora: hora_inicio,
+                quantidade: qtd,
+                intensidade: intensidade_log(qtd, maximo),
+            });
+        }
+        resultado.push(HistoricoContainer { nome, horas, total });
+    }
+    Ok(resultado)
 }
 
 /// Alertas com `created_at >= corte`, mais recentes primeiro, até `limite`.
@@ -669,5 +811,74 @@ mod tests {
         let todos = alertas_recentes(&conn, 0, 100).unwrap();
         assert_eq!(todos.len(), 2);
         assert_eq!(todos[0].tipo, "restarted");
+    }
+
+    #[test]
+    fn historico_por_hora_preenche_lacunas_e_inclui_container_limpo() {
+        // agora = 100_000 (escolhido para alinhar com hora cheia: 100_000 /
+        // 3600 = 27, resto 2800). 24h de janela cobre ts >= 100_000 - 24*3600
+        // = 13_600. Containers: "ruim" com erros em 2 horas distintas;
+        // "limpo" registrado mas sem NENHUMA contagem na janela.
+        let agora = 100_000i64;
+        let janela = 24i64;
+        let conn = banco();
+        inserir_container(&conn, "ruim", "running", agora);
+        inserir_container(&conn, "limpo", "running", agora);
+
+        // 3 ERRORs há 1h (hora atual, contagem grande) e 5 CRITICALs há 23h
+        // (cabe na janela de 24h, fica na última posição do strip).
+        let mut niveis = std::collections::BTreeMap::new();
+        niveis.insert("ERROR".to_string(), 3usize);
+        armazenar_contagens(&conn, "ruim", &niveis, agora - 3600).unwrap();
+        let mut antigos = std::collections::BTreeMap::new();
+        antigos.insert("CRITICAL".to_string(), 5usize);
+        armazenar_contagens(&conn, "ruim", &antigos, agora - 23 * 3600).unwrap();
+
+        // INFO não conta (só ERROR/ERRO/CRIT/CRITICAL/FATAL).
+        let mut info = std::collections::BTreeMap::new();
+        info.insert("INFO".to_string(), 100usize);
+        armazenar_contagens(&conn, "ruim", &info, agora - 5 * 3600).unwrap();
+
+        // Contagem FORA da janela: não deve aparecer.
+        let mut fora = std::collections::BTreeMap::new();
+        fora.insert("ERROR".to_string(), 99usize);
+        armazenar_contagens(&conn, "ruim", &fora, agora - janela * 3600 - 1).unwrap();
+
+        let hist = historico_por_hora(&conn, janela, agora).unwrap();
+        // Os DOIS containers aparecem, mesmo o "limpo".
+        assert_eq!(hist.len(), 2);
+        let ruim = hist.iter().find(|h| h.nome == "ruim").unwrap();
+        let limpo = hist.iter().find(|h| h.nome == "limpo").unwrap();
+
+        // Strip sempre tem `janela` células, mais recente primeiro.
+        assert_eq!(ruim.horas.len(), janela as usize);
+        assert_eq!(limpo.horas.len(), janela as usize);
+
+        // 1ª célula = hora ATUAL (sem contagens novas — as 3 estão em
+        // agora-3600, que cai na hora ANTERIOR, célula de índice 1).
+        assert_eq!(ruim.horas[0].quantidade, 0);
+        // 2ª célula (hora anterior) = 3 (os 3 ERRORs agora-3600).
+        assert_eq!(ruim.horas[1].quantidade, 3);
+        // Última célula (23h atrás) do "ruim" = 5 (os 5 CRITICALs).
+        assert_eq!(ruim.horas[23].quantidade, 5);
+        // Demais: zero (INFO não conta; contagem fora da janela não conta).
+        assert!(ruim.horas[2..23].iter().all(|c| c.quantidade == 0));
+        // Total = 3 + 5 (a de fora não entra).
+        assert_eq!(ruim.total, 8);
+
+        // "limpo" não tem NENHUMA célula preenchida.
+        assert!(limpo.horas.iter().all(|c| c.quantidade == 0));
+        assert_eq!(limpo.total, 0);
+
+        // Alinhamento: `hora` de cada célula é múltiplo de 3600.
+        for c in &ruim.horas {
+            assert_eq!(c.hora % 3600, 0);
+        }
+
+        // Intensidade: a célula com o maior valor do conjunto todo (os 5
+        // CRITICALs) fica no teto (5); célula sem contagem fica 0.
+        assert_eq!(ruim.horas[23].intensidade, 5);
+        assert_eq!(ruim.horas[0].intensidade, 0);
+        assert!(limpo.horas.iter().all(|c| c.intensidade == 0));
     }
 }

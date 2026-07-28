@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 // docs: https://docs.rs/chrono/latest/chrono/trait.Datelike.html#tymethod.month0
 // docs: https://docs.rs/chrono/latest/chrono/struct.Duration.html
 // docs: https://docs.rs/chrono/latest/chrono/struct.Duration.html#method.days
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc};
+use chrono::{Datelike, Duration, Local, NaiveDate};
 // Trait de extensão do `owo-colors`: importá-la dá a qualquer tipo `Display`
 // métodos como `.truecolor(r,g,b)`, `.cyan()`, `.bold()`, que devolvem um
 // wrapper que, ao ser formatado, embute os códigos de escape ANSI de cor.
@@ -36,11 +36,17 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc};
 // docs: https://docs.rs/owo-colors/latest/owo_colors/trait.OwoColorize.html#method.bold
 use owo_colors::OwoColorize;
 
-// Teto e piso de duração de uma sessão (ver `duracao_sessao`): sessões que
-// ficam abertas a noite toda não devem contar como horas contínuas de
-// trabalho, e sessões extremamente curtas ainda recebem um piso mínimo.
-pub const TETO_HORAS: f64 = 4.0;
-pub const MINIMO_HORAS: f64 = 1.0 / 60.0;
+// `Sessao`, `duracao_sessao`, `agregar_por_dia`, `agregar_por_semana` e os
+// limiares `TETO_HORAS`/`MINIMO_HORAS` vivem em `nucleo::horas_sessao` —
+// extraídos de lá para cá (achado 5 da revisão do redesign do portal) para
+// o endpoint `/api/ia/custos` do dev-server reaproveitar exatamente a
+// mesma conta de "horas trabalhadas" que o `dev-cli ai stats` já fazia,
+// sem duplicar o clamp/soma em dois lugares. Reexportar aqui mantém todo o
+// resto deste crate (`opencode.rs`, `claude.rs`, `stats.rs`) escrevendo
+// `render::Sessao`/`render::duracao_sessao` sem precisar mudar imports.
+pub use nucleo::horas_sessao::{
+    MINIMO_HORAS, Sessao, TETO_HORAS, agregar_por_dia, agregar_por_semana, duracao_sessao,
+};
 
 // Formata um número grande de forma compacta (1.5K, 2.3M, 1.2B), para caber
 // nas colunas estreitas do dashboard sem estourar o alinhamento. Os `if/else`
@@ -492,73 +498,6 @@ pub fn renderizar_heatmap(
     let legenda: String = (0..5).map(|nivel| celula_heatmap(nivel, cores)).collect();
     linhas.push(format!("      Menos {legenda} Mais"));
     linhas
-}
-
-// Sessão de trabalho com data e duração em horas.
-// Tipo contrato que `ai/claude.rs` (Task 7) vai produzir — o nome e os campos
-// são parte da interface pública entre módulos.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Sessao {
-    pub dia: NaiveDate,
-    pub duracao_horas: f64,
-}
-
-// Duração de uma sessão a partir dos horários de suas mensagens (já
-// ordenados). Sessão de 1 mensagem só vira um valor fixo de 5 minutos —
-// não há intervalo pra medir. Com 2+ horários, é a diferença entre o
-// primeiro e o último, limitada entre `MINIMO_HORAS` e `TETO_HORAS` (uma
-// sessão que ficou aberta a noite toda não deve contar como 8h de
-// trabalho contínuo). `?` sobre `.first()`/`.last()` devolve `None` pra
-// um slice vazio em vez de exigir `.expect()` numa invariante que quem
-// chama já garante (sempre monta o vetor com pelo menos 1 elemento).
-// docs: https://doc.rust-lang.org/std/option/index.html#the-question-mark-operator-
-// docs: https://doc.rust-lang.org/std/primitive.slice.html#method.first
-// docs: https://doc.rust-lang.org/std/primitive.slice.html#method.last
-// docs: https://doc.rust-lang.org/std/option/enum.Option.html#method.expect
-pub fn duracao_sessao(horarios: &[DateTime<Utc>]) -> Option<f64> {
-    let inicio = *horarios.first()?;
-    if horarios.len() < 2 {
-        return Some(5.0 / 60.0);
-    }
-    let fim = *horarios.last()?;
-    let horas_brutas = (fim - inicio).num_seconds() as f64 / 3600.0;
-    Some(horas_brutas.clamp(MINIMO_HORAS, TETO_HORAS))
-}
-
-// Mapa dia -> (soma de horas, quantidade de sessões).
-// `entry(...).or_insert((0.0, 0))`: pega a entrada existente ou cria zerada,
-// sem precisar de `if contains_key` — evita uma segunda busca na árvore.
-// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry
-// docs: https://doc.rust-lang.org/std/collections/btree_map/enum.Entry.html#method.or_insert
-// docs: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.contains_key
-pub fn agregar_por_dia(sessoes: &[Sessao]) -> BTreeMap<NaiveDate, (f64, u32)> {
-    let mut mapa: BTreeMap<NaiveDate, (f64, u32)> = BTreeMap::new();
-    for sessao in sessoes {
-        let entrada = mapa.entry(sessao.dia).or_insert((0.0, 0));
-        entrada.0 += sessao.duracao_horas;
-        entrada.1 += 1;
-    }
-    mapa
-}
-
-// Mapa segunda-feira-da-semana -> (soma de horas, quantidade de sessões,
-// conjunto de dias distintos com atividade naquela semana).
-// `num_days_from_monday()`: segunda=0 .. domingo=6 — exatamente quanto
-// subtrair da data para voltar à segunda daquela semana.
-// docs: https://docs.rs/chrono/latest/chrono/enum.Weekday.html#method.num_days_from_monday
-pub fn agregar_por_semana(
-    sessoes: &[Sessao],
-) -> BTreeMap<NaiveDate, (f64, u32, BTreeSet<NaiveDate>)> {
-    let mut mapa: BTreeMap<NaiveDate, (f64, u32, BTreeSet<NaiveDate>)> = BTreeMap::new();
-    for sessao in sessoes {
-        let segunda =
-            sessao.dia - Duration::days(sessao.dia.weekday().num_days_from_monday() as i64);
-        let entrada = mapa.entry(segunda).or_insert((0.0, 0, BTreeSet::new()));
-        entrada.0 += sessao.duracao_horas;
-        entrada.1 += 1;
-        entrada.2.insert(sessao.dia);
-    }
-    mapa
 }
 
 /// Agregação de uso por modelo — tipo contrato compartilhado entre os dois

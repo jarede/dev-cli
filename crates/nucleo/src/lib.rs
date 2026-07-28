@@ -8,9 +8,11 @@
 // Num workspace, `pub mod` aqui é o que torna cada módulo visível para os
 // OUTROS crates (diferente de `pub(crate)`, que restringe ao próprio crate).
 // docs: https://doc.rust-lang.org/reference/visibility-and-privacy.html
+pub mod cambio;
 pub mod coletor;
 pub mod config;
 pub mod core;
 pub mod db;
 pub mod executor;
+pub mod horas_sessao;
 pub mod metricas;

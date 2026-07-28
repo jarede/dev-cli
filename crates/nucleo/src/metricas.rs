@@ -106,6 +106,31 @@ pub fn severidade(resumo: &ResumoContainer, limiares: &Limiares) -> Severidade {
     Severidade::Verde
 }
 
+/// Mapeia um valor para uma intensidade 0..=5 em escala LOGARÍTMICA,
+/// relativa ao maior valor do conjunto (`maximo`) — fonte única de verdade
+/// para os dois heatmaps do portal: o histórico de erros por hora
+/// (`crate::db::historico_por_hora`) e o heatmap mensal de custos de IA
+/// (`crates/servidor/src/ia.rs`). Antes cada um tinha sua própria cópia
+/// (uma em log10 no servidor, outra com faixas fixas chumbadas no React) —
+/// unificar aqui garante que "o mesmo número de erros" sempre pinte a
+/// mesma cor, não importa a tela.
+///
+/// Escala log (em vez de linear) porque a distribuição de erros/tokens por
+/// unidade de tempo costuma ser bem assimétrica (poucos picos, muitos
+/// períodos baixos) — linear deixaria quase tudo na cor mais clara.
+/// `valor <= 0` ou `maximo <= 0` (nada para comparar) sempre vira 0.
+pub fn intensidade_log(valor: i64, maximo: i64) -> u8 {
+    if valor <= 0 || maximo <= 0 {
+        return 0;
+    }
+    // log10(valor+1) / log10(maximo+1) -> fração 0..=1; multiplica por 5 e
+    // arredonda para cima (mínimo 1 se valor > 0, já garantido pelo `if`
+    // acima) para nunca colapsar atividade real em "sem atividade".
+    let frac = (valor as f64 + 1.0).log10() / ((maximo as f64) + 1.0).log10();
+    let n = (frac * 5.0).ceil() as i32;
+    n.clamp(1, 5) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +238,25 @@ mod tests {
         assert!(Severidade::Verde < Severidade::Amarelo);
         assert!(Severidade::Amarelo < Severidade::Vermelho);
         assert!(Severidade::Vermelho < Severidade::Parado);
+    }
+
+    #[test]
+    fn intensidade_log_sem_dados_e_zero() {
+        assert_eq!(intensidade_log(0, 10), 0);
+        assert_eq!(intensidade_log(5, 0), 0);
+        assert_eq!(intensidade_log(-1, 10), 0);
+    }
+
+    #[test]
+    fn intensidade_log_no_maximo_e_cinco() {
+        assert_eq!(intensidade_log(100, 100), 5);
+    }
+
+    #[test]
+    fn intensidade_log_valor_pequeno_e_pelo_menos_um() {
+        // Qualquer atividade real (> 0) nunca deve virar intensidade 0 —
+        // senão "houve 1 erro" ficaria visualmente igual a "não houve nada".
+        assert_eq!(intensidade_log(1, 1_000_000), 1);
     }
 
     #[test]

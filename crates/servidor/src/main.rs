@@ -9,6 +9,7 @@
 // SQLite (modo WAL), cada uma com a sua Connection.
 
 mod api;
+mod ia;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
@@ -164,9 +165,22 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
         .layer(tower_http::cors::CorsLayer::permissive())
         .layer(camada_log_acesso);
     if !config.servidor.portal_dir.is_empty() {
-        rotas = rotas.fallback_service(tower_http::services::ServeDir::new(
-            &config.servidor.portal_dir,
-        ));
+        // O portal é uma SPA com react-router: rotas como `/historico` só
+        // existem no lado do cliente (o navegador troca a tela via JS, sem
+        // pedir nada novo ao servidor). Um `ServeDir` puro devolve 404 pra
+        // qualquer caminho que não bata com um arquivo real do build — ao
+        // recarregar `/historico` ou abri-lo direto, o navegador PEDE
+        // `/historico` ao servidor, que não tem esse arquivo. `not_found_service`
+        // troca esse 404 pelo `index.html`: o react-router então assume o
+        // roteamento no cliente a partir daí, como no dev (onde o Vite já
+        // faz esse fallback sozinho).
+        // docs: https://docs.rs/tower-http/latest/tower_http/services/struct.ServeDir.html#method.not_found_service
+        // docs: https://docs.rs/tower-http/latest/tower_http/services/struct.ServeFile.html
+        let index_html = PathBuf::from(&config.servidor.portal_dir).join("index.html");
+        rotas = rotas.fallback_service(
+            tower_http::services::ServeDir::new(&config.servidor.portal_dir)
+                .not_found_service(tower_http::services::ServeFile::new(index_html)),
+        );
         println!("portal estático: {}", config.servidor.portal_dir);
     }
 

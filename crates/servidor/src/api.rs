@@ -23,7 +23,8 @@ use serde::{Deserialize, Serialize};
 use nucleo::coletor::agora_unix;
 use nucleo::config::Config;
 use nucleo::db::{
-    Alerta, ErroLog, LinhaLog, alertas_recentes, carregar_linhas_janela, erros_desde, resumo_janela,
+    Alerta, ErroLog, HistoricoContainer, LinhaLog, alertas_recentes, carregar_linhas_janela,
+    erros_desde, historico_por_hora, resumo_janela,
 };
 use nucleo::metricas::{ResumoContainer, Severidade, severidade};
 
@@ -44,13 +45,17 @@ pub struct EstadoApi {
 pub fn criar_rotas(estado: EstadoApi) -> Router {
     Router::new()
         .route("/api/saude", get(saude))
+        .route("/api/config", get(config_efetiva))
         .route("/api/containers", get(listar_containers))
         // `{nome}` é a sintaxe de path param do axum 0.8 (era `:nome` até
         // o 0.7) — o valor chega no handler pelo extractor `Path`.
         // docs: https://docs.rs/axum/latest/axum/extract/struct.Path.html
         .route("/api/containers/{nome}/linhas", get(listar_linhas))
+        .route("/api/containers/historico", get(listar_historico))
         .route("/api/alertas", get(listar_alertas))
         .route("/api/erros", get(listar_erros))
+        .route("/api/ia/custos", get(crate::ia::custos))
+        .route("/api/ia/cambio", get(crate::ia::cambio))
         // `.with_state`: injeta o estado; os handlers o recebem via o
         // extractor `State<EstadoApi>`.
         .with_state(estado)
@@ -67,6 +72,21 @@ struct Saude {
 // docs: https://docs.rs/axum/latest/axum/struct.Json.html
 async fn saude() -> Json<Saude> {
     Json(Saude { status: "ok" })
+}
+
+/// GET /api/config — a `Config` EFETIVA que o servidor está usando (depois
+/// de aplicar flags > env > arquivo > defaults, exatamente a precedência de
+/// `Config::carregar`), para a tela Configuração do portal parar de mostrar
+/// valores chumbados no React (porta 8787, intervalo 30s...) que podem não
+/// bater com o que o operador configurou de verdade. Somente-leitura: o
+/// servidor hoje só LÊ o TOML — não existe endpoint de escrita.
+async fn config_efetiva(State(estado): State<EstadoApi>) -> Json<Config> {
+    // `(*estado.config).clone()`: `estado.config` é um `Arc<Config>`
+    // (barato de clonar A REFERÊNCIA); aqui precisamos do VALOR de dentro
+    // para o axum poder serializá-lo como corpo da resposta — daí o
+    // desreferenciar (`*`) antes de clonar os dados em si.
+    // docs: https://doc.rust-lang.org/std/sync/struct.Arc.html
+    Json((*estado.config).clone())
 }
 
 /// Query string aceita por `/api/containers` (`?janela_min=60`).
@@ -149,6 +169,40 @@ async fn listar_linhas(
     let linhas = carregar_linhas_janela(&conn, &nome, params.nivel.as_deref(), corte, limite)
         .map_err(erro_interno)?;
     Ok(Json(linhas))
+}
+
+/// Query string de `/api/containers/historico` — janela em HORAS (default
+/// 24), por consistência com o endpoint que renderiza o strip da tela
+/// "Histórico" do portal (24 células = 1 strip de 24h).
+#[derive(Deserialize)]
+struct ParamsHistorico {
+    horas: Option<i64>,
+}
+
+/// GET /api/containers/historico — contagem de erros+críticos agrupada por
+/// hora nas últimas `?horas=N` (default 24), um strip por container.
+/// `/containers/historico` em vez de `/containers/{nome}/historico` para
+/// devolver TODOS de uma vez (o portal quer uma lista) — a API da Fase 2
+/// não paginava, mantém o mesmo padrão "lista enxuta".
+/// Teto de `?horas`: 30 dias. Sem teto, `?horas=100000000` faria
+/// `historico_por_hora` alocar um `Vec::with_capacity` proporcional a esse
+/// número POR CONTAINER — um jeito barato de derrubar o processo por OOM a
+/// partir de um único parâmetro de query. 30 dias já é bem mais que a
+/// tela "Histórico" (24h) precisa; existe folga para uso futuro (ex.: um
+/// seletor de período maior), não para qualquer valor arbitrário.
+const HORAS_HISTORICO_MAX: i64 = 24 * 30;
+
+async fn listar_historico(
+    State(estado): State<EstadoApi>,
+    Query(params): Query<ParamsHistorico>,
+) -> Result<Json<Vec<HistoricoContainer>>, (StatusCode, String)> {
+    // `.clamp(1, HORAS_HISTORICO_MAX)`: evita tanto janela zero/negativa
+    // (que a query do nucleo interpretaria como "tudo") quanto um valor
+    // gigante que aloca memória sem limite — ver `HORAS_HISTORICO_MAX`.
+    let horas = params.horas.unwrap_or(24).clamp(1, HORAS_HISTORICO_MAX);
+    let conn = estado.db.lock().map_err(erro_interno)?;
+    let hist = historico_por_hora(&conn, horas, agora_unix()).map_err(erro_interno)?;
+    Ok(Json(hist))
 }
 
 /// Query string de `/api/alertas`.
@@ -247,6 +301,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn config_efetiva_devolve_a_config_do_estado() {
+        let mut config = Config::default();
+        config.coleta.intervalo_seg = 45;
+        config.servidor.bind = "0.0.0.0:9999".to_string();
+        let estado = EstadoApi {
+            db: Arc::new(Mutex::new({
+                let conn = Connection::open_in_memory().unwrap();
+                init_db(&conn).unwrap();
+                conn
+            })),
+            config: Arc::new(config),
+        };
+
+        let (status, json) = get_json(criar_rotas(estado), "/api/config").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["coleta"]["intervalo_seg"], 45);
+        assert_eq!(json["servidor"]["bind"], "0.0.0.0:9999");
+    }
+
+    #[tokio::test]
     async fn rota_desconhecida_e_404() {
         let (status, _) = get_json(criar_rotas(estado_teste()), "/nao-existe").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -319,14 +393,23 @@ mod tests {
         assert_eq!(json.as_array().unwrap().len(), 2);
     }
 
+    /// Monta o mesmo fallback do `main.rs`: `ServeDir` com `not_found_service`
+    /// apontando pro `index.html` — o que faz o SPA funcionar em rotas do
+    /// react-router (`/historico`, `/ia`...) que não existem como arquivo.
+    fn rotas_com_portal(dir: &std::path::Path) -> Router {
+        criar_rotas(estado_teste()).fallback_service(
+            tower_http::services::ServeDir::new(dir)
+                .not_found_service(tower_http::services::ServeFile::new(dir.join("index.html"))),
+        )
+    }
+
     #[tokio::test]
     async fn portal_estatico_e_servido_como_fallback() {
         let dir = std::env::temp_dir().join("dev-cli-teste-portal");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("index.html"), "<h1>portal</h1>").unwrap();
 
-        let rotas =
-            criar_rotas(estado_teste()).fallback_service(tower_http::services::ServeDir::new(&dir));
+        let rotas = rotas_com_portal(&dir);
 
         let resposta = rotas
             .clone()
@@ -338,6 +421,38 @@ mod tests {
         let (status, json) = get_json(rotas, "/api/saude").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn rota_do_react_router_cai_no_index_html() {
+        // Regressão do achado 1: sem `not_found_service`, recarregar
+        // `/historico` em produção devolvia 404 (o `ServeDir` só conhece
+        // arquivos reais do build) em vez do `index.html` que deixa o
+        // react-router assumir o roteamento no cliente.
+        let dir = std::env::temp_dir().join("dev-cli-teste-portal-spa");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<h1>portal</h1>").unwrap();
+
+        let rotas = rotas_com_portal(&dir);
+        let resposta = rotas
+            .oneshot(
+                Request::builder()
+                    .uri("/historico")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // `not_found_service` (padrão recomendado do próprio tower-http para
+        // SPAs) força o status para 404 mesmo servindo o `index.html` no
+        // corpo — o que importa aqui é o CORPO: é isso que deixa o
+        // react-router assumir e trocar de tela no navegador. Uma
+        // navegação direta do browser (recarregar, colar a URL) renderiza
+        // o corpo HTML normalmente mesmo com status não-2xx; só `fetch()`
+        // trataria 404 como falha, e não é o caso de uma navegação de página.
+        assert_eq!(resposta.status(), StatusCode::NOT_FOUND);
+        let corpo = resposta.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&corpo[..], b"<h1>portal</h1>");
     }
 
     #[tokio::test]
@@ -396,5 +511,140 @@ mod tests {
         assert_eq!(lista.len(), 1);
         assert_eq!(lista[0]["container"], "app");
         assert_eq!(lista[0]["tipo"], "stopped");
+    }
+
+    #[tokio::test]
+    async fn historico_endpoint_devolve_24_celulas_por_container() {
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            // Container com 5 ERRORs há 1h.
+            conn.execute(
+                "INSERT INTO containers (name, status, last_collected_at, uptime, criado_em)
+                 VALUES ('app', 'running', ?1, 'Up 1 day', '')",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO log_counts (container_name, level, count, collected_at)
+                 VALUES ('app', 'ERROR', 5, ?1)",
+                rusqlite::params![agora - 3600],
+            )
+            .unwrap();
+        }
+
+        let (status, json) = get_json(criar_rotas(estado), "/api/containers/historico").await;
+        assert_eq!(status, StatusCode::OK);
+        let lista = json.as_array().unwrap();
+        assert_eq!(lista.len(), 1);
+        assert_eq!(lista[0]["nome"], "app");
+        let horas = lista[0]["horas"].as_array().unwrap();
+        assert_eq!(horas.len(), 24);
+        // Soma = 5 (o resto é 0). O total é a soma simples.
+        assert_eq!(lista[0]["total"], 5);
+        // A hora com 5 contagens fica na célula de índice 1 (a anterior).
+        assert!(horas.iter().any(|c| c["quantidade"] == 5));
+    }
+
+    #[tokio::test]
+    async fn historico_endpoint_respeita_horas_custom() {
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            conn.execute(
+                "INSERT INTO containers (name, status, last_collected_at, uptime, criado_em)
+                 VALUES ('app', 'running', ?1, 'Up 1 day', '')",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+        }
+
+        let (status, json) =
+            get_json(criar_rotas(estado), "/api/containers/historico?horas=6").await;
+        assert_eq!(status, StatusCode::OK);
+        let horas = json[0]["horas"].as_array().unwrap();
+        assert_eq!(horas.len(), 6);
+    }
+
+    #[tokio::test]
+    async fn historico_endpoint_clampa_horas_absurdas() {
+        // Regressão do achado 2: `?horas=100000000` não pode virar uma
+        // alocação gigante — o endpoint deve clampar no teto
+        // (`HORAS_HISTORICO_MAX` = 24*30) em vez de repassar o valor cru.
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            conn.execute(
+                "INSERT INTO containers (name, status, last_collected_at, uptime, criado_em)
+                 VALUES ('app', 'running', ?1, 'Up 1 day', '')",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+        }
+
+        let (status, json) = get_json(
+            criar_rotas(estado),
+            "/api/containers/historico?horas=100000000",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let horas = json[0]["horas"].as_array().unwrap();
+        assert_eq!(horas.len(), (24 * 30) as usize);
+    }
+
+    #[tokio::test]
+    async fn historico_endpoint_clampa_horas_zero_ou_negativas() {
+        let estado = estado_teste();
+        {
+            let conn = estado.db.lock().unwrap();
+            let agora = nucleo::coletor::agora_unix();
+            conn.execute(
+                "INSERT INTO containers (name, status, last_collected_at, uptime, criado_em)
+                 VALUES ('app', 'running', ?1, 'Up 1 day', '')",
+                rusqlite::params![agora],
+            )
+            .unwrap();
+        }
+
+        let (status, json) =
+            get_json(criar_rotas(estado), "/api/containers/historico?horas=-5").await;
+        assert_eq!(status, StatusCode::OK);
+        let horas = json[0]["horas"].as_array().unwrap();
+        assert_eq!(horas.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ia_custos_sem_banco_devolve_vazio() {
+        // Força um caminho inexistente via env: a função `caminho_db_opencode`
+        // lê `DEV_CLI_OPENCODE_DB` antes de cair no default de `~/.local/...`
+        // (que pode existir no ambiente do dev).
+        // `tempdir` seria ideal mas ia trazer uma dep nova; um path /tmp
+        // com nome aleatório improvável basta.
+        let caminho_falso = std::env::temp_dir().join("dev-cli-ia-test-que-nao-existe.db");
+        // `set_var` é `unsafe` desde o Rust 1.86 (race em programas multi-thread);
+        // aceitável aqui porque o teste é serial e o `unsafe` é local.
+        unsafe { std::env::set_var("DEV_CLI_OPENCODE_DB", &caminho_falso) };
+
+        let (status, json) = get_json(criar_rotas(estado_teste()), "/api/ia/custos").await;
+        unsafe { std::env::remove_var("DEV_CLI_OPENCODE_DB") };
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["disponivel"], false);
+        assert_eq!(json["tokens"], 0);
+        assert_eq!(json["modelos"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn ia_cambio_devolve_taxa() {
+        // Busca ao vivo (rede pode estar indisponível no ambiente de
+        // teste/CI) OU o fallback — o endpoint nunca deve falhar, então só
+        // travamos que a taxa devolvida é positiva, sem prender o teste a
+        // um valor específico (a taxa real muda todo dia).
+        let (status, json) = get_json(criar_rotas(estado_teste()), "/api/ia/cambio").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(json["usd_brl"].as_f64().unwrap() > 0.0);
     }
 }

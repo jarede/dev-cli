@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/classical-fcae2eca-6b1f-4f6c-b66f-8bb9393c21aa/styles.css">
+<script src="_ds/classical-fcae2eca-6b1f-4f6c-b66f-8bb9393c21aa/_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--color-bg);color:var(--color-text)}a{color:var(--color-accent-700)}a:hover{color:var(--color-accent)}</style>
+</helmet>
+<div style="min-height:100vh;font-family:var(--font-body)">
+  <nav class="nav">
+    <span class="nav-brand">dev-cli</span>
+    <a href="#recursos">Recursos</a>
+    <a href="#instalar">Instalação</a>
+    <a href="https://github.com/jarede/dev-cli">GitHub</a>
+    <a href="Portal dev-cli.dc.html" class="btn btn-primary" style="margin-left:auto;text-decoration:none">Ver o portal</a>
+  </nav>
+  <header style="max-width:860px;margin:0 auto;padding:88px 24px 64px;text-align:center">
+    <div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:18px">Um canivete suíço em Rust, escrito para aprender</div>
+    <h1 style="font-family:var(--font-heading);font-weight:400;font-size:64px;line-height:1.08;margin:0 0 22px;text-wrap:balance">Os seus logs e os seus custos de IA, num só binário.</h1>
+    <p style="font-size:17px;line-height:1.7;color:var(--color-neutral-700);max-width:56ch;margin:0 auto 34px;text-align:justify;text-align-last:center">O dev-cli acompanha os containers da sua VM — erros, 5xx, p95 — num dashboard de terminal ou num portal web, e ainda fecha a conta do mês com o Claude Code e o OpenCode, em dólar e em real.</p>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <a href="#instalar" class="btn btn-primary" style="text-decoration:none">brew install dev-cli</a>
+      <a href="#recursos" class="btn btn-ghost" style="text-decoration:none">Como funciona</a>
+    </div>
+  </header>
+  <div style="max-width:980px;margin:0 auto;padding:0 24px">
+    <figure class="plate" style="margin:0">
+      <div style="aspect-ratio:16/8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--color-neutral-100);color:var(--color-neutral-500);font-size:13px">
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">$ dev-cli logs dashboard</span>
+        <span>captura do dashboard TUI — substituir por screenshot real</span>
+      </div>
+    </figure>
+  </div>
+  <section id="recursos" style="max-width:980px;margin:0 auto;padding:72px 24px">
+    <h2 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:32px;margin:0 0 30px;border-bottom:1px solid var(--color-divider);padding-bottom:16px">Três frentes, um binário</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0">
+      <div style="padding:0 28px 0 0;border-right:1px solid var(--color-divider)">
+        <div style="font-family:var(--font-heading);font-size:22px;margin-bottom:10px">Logs ao vivo</div>
+        <p style="font-size:14px;line-height:1.7;color:var(--color-neutral-700);text-align:justify;margin:0">Coleta contínua dos containers — docker local ou via SSH — com containers ranqueados por severidade, drill-down por nível e alertas quando algo para ou reinicia.</p>
+      </div>
+      <div style="padding:0 28px;border-right:1px solid var(--color-divider)">
+        <div style="font-family:var(--font-heading);font-size:22px;margin-bottom:10px">Portal web</div>
+        <p style="font-size:14px;line-height:1.7;color:var(--color-neutral-700);text-align:justify;margin:0">O dev-server expõe a mesma coleta numa API JSON e serve o portal no navegador: feed de erros em tempo real, tabela de containers e histórico por hora.</p>
+      </div>
+      <div style="padding:0 0 0 28px">
+        <div style="font-family:var(--font-heading);font-size:22px;margin-bottom:10px">Custos de IA</div>
+        <p style="font-size:14px;line-height:1.7;color:var(--color-neutral-700);text-align:justify;margin:0">Heatmap de atividade, streaks e custo por modelo do OpenCode e do Claude Code — lidos direto dos arquivos locais, convertidos pela cotação do dia.</p>
+      </div>
+    </div>
+  </section>
+  <section id="instalar" style="max-width:720px;margin:0 auto;padding:24px 24px 88px">
+    <h2 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:32px;margin:0 0 8px">Instalação</h2>
+    <p style="font-size:14px;color:var(--color-neutral-600);margin:0 0 24px">Binários para macOS, Linux e Windows em cada release — com checksums.</p>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="card" style="padding:16px 20px">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">macOS e Linux — Homebrew</div>
+        <pre style="margin:0;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;white-space:pre-wrap">brew tap jarede/dev-cli https://github.com/jarede/dev-cli
+brew install dev-cli</pre>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Windows — Scoop</div>
+        <pre style="margin:0;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;white-space:pre-wrap">scoop bucket add dev-cli https://github.com/jarede/dev-cli
+scoop install dev-cli</pre>
+      </div>
+      <div class="card" style="padding:16px 20px">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">A partir do código-fonte</div>
+        <pre style="margin:0;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;white-space:pre-wrap">cargo install --git https://github.com/jarede/dev-cli</pre>
+      </div>
+    </div>
+  </section>
+  <footer style="border-top:1px solid var(--color-divider)">
+    <div style="max-width:980px;margin:0 auto;padding:24px;display:flex;gap:16px;font-size:12.5px;color:var(--color-neutral-600)">
+      <span>MIT © 2026 Jarede Silva</span>
+      <span style="margin-left:auto">Um projeto de aprendizado de Rust — código comentado de forma didática.</span>
+    </div>
+  </footer>
+</div>
+</x-dc>
+</body>
+</html>

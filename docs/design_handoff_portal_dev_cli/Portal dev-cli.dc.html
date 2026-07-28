@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/classical-fcae2eca-6b1f-4f6c-b66f-8bb9393c21aa/styles.css">
+<script src="_ds/classical-fcae2eca-6b1f-4f6c-b66f-8bb9393c21aa/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-bg);color:var(--color-text)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent)}
+@keyframes pulseNovo{from{background:color-mix(in srgb,#a2503c 18%,transparent)}to{background:transparent}}
+</style>
+</helmet>
+<div style="min-height:100vh;font-family:var(--font-body)">
+  <nav class="nav" style="position:sticky;top:0;z-index:10;background:var(--color-bg)">
+    <span class="nav-brand">dev-cli · portal</span>
+    <a href="#" aria-current="{{ curVisao }}" onClick="{{ irVisao }}">Visão geral</a>
+    <a href="#" aria-current="{{ curHist }}" onClick="{{ irHist }}">Histórico</a>
+    <a href="#" aria-current="{{ curIa }}" onClick="{{ irIa }}">IA · custos</a>
+    <a href="#" aria-current="{{ curConf }}" onClick="{{ irConf }}">Configuração</a>
+    <span style="margin-left:auto;font-size:12px;color:var(--color-neutral-600);font-feature-settings:'tnum'">{{ resumo }}</span>
+  </nav>
+
+  <sc-if value="{{ apiFora }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width:1180px;margin:16px auto 0;padding:10px 16px;border:1px solid #a2503c;border-radius:var(--radius-md);color:#7c3a2e;font-size:13px;background:color-mix(in srgb,#a2503c 7%,var(--color-bg))">Sem resposta da API — o dev-server está rodando? Mostrando os últimos dados conhecidos.</div>
+  </sc-if>
+
+  <sc-if value="{{ telaVisao }}" hint-placeholder-val="{{ true }}">
+  <main data-screen-label="Visão geral" style="max-width:1180px;margin:0 auto;padding:36px 24px 64px">
+    <header style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid var(--color-divider);padding-bottom:18px;margin-bottom:28px">
+      <h1 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:34px;margin:0">Visão geral</h1>
+      <span style="font-size:13px;color:var(--color-neutral-600)">janela de 60 minutos · coleta contínua · docker local</span>
+      <span style="margin-left:auto;font-size:12px;color:var(--color-neutral-500);font-feature-settings:'tnum'">atualizado {{ atualizadoHa }}</span>
+    </header>
+    <div style="display:grid;grid-template-columns:1fr 380px;gap:36px;align-items:start">
+      <section>
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
+          <h2 style="font-family:var(--font-body);font-size:11px;font-weight:normal;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin:0">Containers</h2>
+          <span style="font-size:11px;color:var(--color-neutral-500)">piores primeiro</span>
+        </div>
+        <table class="table" style="font-feature-settings:'tnum'">
+          <thead><tr>
+            <th style="width:18px"></th><th>container</th><th>status</th>
+            <th style="text-align:right">err</th><th style="text-align:right">crit</th>
+            <th style="text-align:right">5xx</th><th style="text-align:right">4xx</th>
+            <th style="text-align:right">p95</th><th style="text-align:right">máx</th><th style="text-align:right">reqs</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{ containers }}" as="c" hint-placeholder-count="5">
+              <tr onClick="{{ c.clicar }}" style="cursor:pointer;background:{{ c.fundoSel }}">
+                <td><span title="{{ c.severidade }}" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:{{ c.cor }}"></span></td>
+                <td style="font-weight:600">{{ c.nome }}</td>
+                <td style="color:var(--color-neutral-600)">{{ c.statusTexto }}</td>
+                <td style="text-align:right;color:{{ c.corErr }}">{{ c.err }}</td>
+                <td style="text-align:right;color:{{ c.corCrit }}">{{ c.crit }}</td>
+                <td style="text-align:right">{{ c.c5 }}</td>
+                <td style="text-align:right">{{ c.c4 }}</td>
+                <td style="text-align:right">{{ c.p95 }}</td>
+                <td style="text-align:right">{{ c.max }}</td>
+                <td style="text-align:right">{{ c.reqs }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <p style="font-size:12px;color:var(--color-neutral-500);margin-top:10px">Clique numa linha para abrir as linhas de log da janela.</p>
+      </section>
+      <aside style="display:flex;flex-direction:column;gap:28px">
+        <sc-if value="{{ temAlertas }}" hint-placeholder-val="{{ true }}">
+        <section class="card" style="padding:14px 16px;border-color:color-mix(in srgb,var(--color-accent) 45%,var(--color-divider))">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:8px">Alertas</div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <sc-for list="{{ alertas }}" as="a" hint-placeholder-count="2">
+              <div style="display:flex;gap:8px;font-size:13px;align-items:baseline">
+                <span style="color:var(--color-accent)">§</span>
+                <span style="flex:1">{{ a.msg }}</span>
+                <span style="color:var(--color-neutral-500);font-size:11.5px;white-space:nowrap">{{ a.quando }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+        </sc-if>
+        <section>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+            <h2 style="font-family:var(--font-body);font-size:11px;font-weight:normal;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin:0">Erros ao vivo</h2>
+            <span style="width:7px;height:7px;border-radius:50%;background:{{ corAoVivo }}"></span>
+          </div>
+          <div style="display:flex;flex-direction:column;max-height:520px;overflow-y:auto;border-top:1px solid var(--color-divider)">
+            <sc-for list="{{ feed }}" as="e" hint-placeholder-count="6">
+              <div onClick="{{ e.clicar }}" style="display:flex;flex-direction:column;gap:3px;padding:9px 6px;border-bottom:1px solid var(--color-divider);cursor:pointer;animation:{{ e.anim }}" style-hover="background:color-mix(in srgb,var(--color-accent) 6%,transparent)">
+                <div style="display:flex;gap:8px;align-items:baseline">
+                  <span style="font-size:11px;font-weight:600;letter-spacing:.06em;color:{{ e.corNivel }}">{{ e.nivel }}</span>
+                  <span style="font-size:11.5px;color:var(--color-neutral-600)">{{ e.container }}</span>
+                  <span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500);white-space:nowrap;font-feature-settings:'tnum'">{{ e.quando }}</span>
+                </div>
+                <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--color-neutral-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.linha }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ telaHist }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="Histórico" style="max-width:1180px;margin:0 auto;padding:36px 24px 64px">
+    <header style="border-bottom:1px solid var(--color-divider);padding-bottom:18px;margin-bottom:28px;display:flex;align-items:baseline;gap:16px">
+      <h1 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:34px;margin:0">Histórico</h1>
+      <span style="font-size:13px;color:var(--color-neutral-600)">erros e críticos por hora · últimas 24 horas</span>
+    </header>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{ historico }}" as="h" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:110px 1fr 70px;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--color-divider)">
+          <span style="font-weight:600;font-size:14px">{{ h.nome }}</span>
+          <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px">
+            <sc-for list="{{ h.horas }}" as="cel" hint-placeholder-count="24">
+              <span title="{{ cel.t }}" style="height:22px;border-radius:2px;background:{{ cel.cor }};border:1px solid var(--color-divider)"></span>
+            </sc-for>
+          </div>
+          <span style="text-align:right;font-feature-settings:'tnum';font-size:13px;color:var(--color-neutral-700)">{{ h.total }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;margin-top:14px;font-size:11.5px;color:var(--color-neutral-500)">
+      <span>00h</span><span style="flex:1;border-top:1px solid var(--color-divider)"></span><span>agora</span>
+      <span style="display:flex;gap:3px;align-items:center;margin-left:20px">menos
+        <span style="width:12px;height:12px;border-radius:2px;background:var(--color-neutral-200)"></span>
+        <span style="width:12px;height:12px;border-radius:2px;background:var(--color-accent-200)"></span>
+        <span style="width:12px;height:12px;border-radius:2px;background:var(--color-accent-400)"></span>
+        <span style="width:12px;height:12px;border-radius:2px;background:var(--color-accent-600)"></span>
+        <span style="width:12px;height:12px;border-radius:2px;background:#a2503c"></span>
+      mais</span>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ telaIa }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="IA e custos" style="max-width:1180px;margin:0 auto;padding:36px 24px 64px">
+    <header style="border-bottom:1px solid var(--color-divider);padding-bottom:18px;margin-bottom:28px;display:flex;align-items:baseline;gap:16px">
+      <h1 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:34px;margin:0">IA · custos</h1>
+      <span style="font-size:13px;color:var(--color-neutral-600)">julho de 2026 · OpenCode + Claude Code · câmbio {{ cambio }}</span>
+    </header>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--color-divider);border-radius:var(--radius-md);margin-bottom:36px">
+      <div style="padding:18px 20px;border-right:1px solid var(--color-divider)">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600)">Custo no mês</div>
+        <div style="font-family:var(--font-heading);font-size:34px;font-feature-settings:'tnum';margin-top:4px">{{ custoMes }}</div>
+        <div style="font-size:12px;color:var(--color-neutral-500);font-feature-settings:'tnum'">{{ custoMesAlt }}</div>
+      </div>
+      <div style="padding:18px 20px;border-right:1px solid var(--color-divider)">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600)">Tokens</div>
+        <div style="font-family:var(--font-heading);font-size:34px;font-feature-settings:'tnum';margin-top:4px">412.6M</div>
+        <div style="font-size:12px;color:var(--color-neutral-500)">86% em cache</div>
+      </div>
+      <div style="padding:18px 20px;border-right:1px solid var(--color-divider)">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600)">Horas com Claude</div>
+        <div style="font-family:var(--font-heading);font-size:34px;font-feature-settings:'tnum';margin-top:4px">61h20m</div>
+        <div style="font-size:12px;color:var(--color-neutral-500)">média 2h27m por dia ativo</div>
+      </div>
+      <div style="padding:18px 20px">
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600)">Streak</div>
+        <div style="font-family:var(--font-heading);font-size:34px;font-feature-settings:'tnum';margin-top:4px">14 dias</div>
+        <div style="font-size:12px;color:var(--color-neutral-500)">melhor: 23 dias</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start">
+      <section>
+        <h2 style="font-family:var(--font-body);font-size:11px;font-weight:normal;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin:0 0 14px">Atividade — julho</h2>
+        <div style="display:flex;gap:10px">
+          <div style="display:grid;grid-template-rows:repeat(7,18px);gap:4px;font-size:10px;color:var(--color-neutral-500);align-items:center">
+            <span>seg</span><span></span><span>qua</span><span></span><span>sex</span><span></span><span>dom</span>
+          </div>
+          <div style="display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,18px);gap:4px">
+            <sc-for list="{{ heatmap }}" as="d" hint-placeholder-count="35">
+              <span title="{{ d.t }}" style="width:18px;height:18px;border-radius:3px;background:{{ d.cor }};border:1px solid var(--color-divider)"></span>
+            </sc-for>
+          </div>
+        </div>
+        <h2 style="font-family:var(--font-body);font-size:11px;font-weight:normal;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin:36px 0 14px">Horas por semana — Claude Code</h2>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ semanas }}" as="s" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:90px 1fr 70px;gap:12px;align-items:center;font-size:13px">
+              <span style="color:var(--color-neutral-600);font-feature-settings:'tnum'">{{ s.rotulo }}</span>
+              <div style="height:10px;background:var(--color-neutral-200);border-radius:2px"><div style="height:100%;border-radius:2px;background:var(--color-accent);width:{{ s.larg }}"></div></div>
+              <span style="text-align:right;font-feature-settings:'tnum'">{{ s.horas }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <section>
+        <h2 style="font-family:var(--font-body);font-size:11px;font-weight:normal;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin:0 0 14px">Por modelo</h2>
+        <table class="table" style="font-feature-settings:'tnum'">
+          <thead><tr><th>modelo</th><th style="text-align:right">tokens</th><th style="text-align:right">custo</th><th style="width:34%"></th></tr></thead>
+          <tbody>
+            <sc-for list="{{ modelos }}" as="m" hint-placeholder-count="4">
+              <tr>
+                <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px">{{ m.nome }}</td>
+                <td style="text-align:right">{{ m.tokens }}</td>
+                <td style="text-align:right">{{ m.custo }}</td>
+                <td><div style="height:8px;background:var(--color-neutral-200);border-radius:2px"><div style="height:100%;border-radius:2px;background:{{ m.cor }};width:{{ m.larg }}"></div></div></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <p style="font-size:12px;color:var(--color-neutral-500);margin-top:12px;text-align:justify">Custos estimados pela tabela de preços por modelo; a conversão para reais usa a cotação ao vivo do dia. Sessões abertas a noite inteira contam no máximo 4 h, espelhando o dashboard do terminal.</p>
+      </section>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ telaConf }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="Configuração" style="max-width:720px;margin:0 auto;padding:36px 24px 64px">
+    <header style="border-bottom:1px solid var(--color-divider);padding-bottom:18px;margin-bottom:28px">
+      <h1 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:34px;margin:0">Configuração</h1>
+      <p style="font-size:13px;color:var(--color-neutral-600);margin:6px 0 0">Espelha o <span style="font-family:ui-monospace,Menlo,monospace">/etc/dev-cli/config.toml</span> — também ajustável por variáveis <span style="font-family:ui-monospace,Menlo,monospace">DEV_CLI_*</span>.</p>
+    </header>
+    <div style="display:flex;flex-direction:column;gap:22px">
+      <div class="field"><label>Origem da coleta</label>
+        <div class="seg">
+          <label class="seg-opt"><input type="radio" name="origem" checked><span>docker local</span></label>
+          <label class="seg-opt"><input type="radio" name="origem"><span>SSH remoto</span></label>
+        </div>
+      </div>
+      <div class="field"><label>Host SSH</label><input class="input" type="text" placeholder="usuario@vm-producao" disabled></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px">
+        <div class="field"><label>Intervalo de coleta (s)</label><input class="input" type="number" defaultValue="30"></div>
+        <div class="field"><label>Janela de análise (min)</label><input class="input" type="number" defaultValue="60"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px">
+        <div class="field"><label>Retenção do banco (dias)</label><input class="input" type="number" defaultValue="14"></div>
+        <div class="field"><label>Porta da API</label><input class="input" type="number" defaultValue="8787"></div>
+      </div>
+      <div class="field"><label>Diretório do portal</label><input class="input" type="text" defaultValue="/var/lib/dev-cli/portal"></div>
+      <div style="display:flex;gap:10px;border-top:1px solid var(--color-divider);padding-top:22px">
+        <button type="button" class="btn btn-primary">Salvar alterações</button>
+        <button type="button" class="btn btn-ghost">Restaurar padrão</button>
+      </div>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ drawerAberto }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ fecharDrawer }}" style="position:fixed;inset:0;background:rgba(32,31,29,.35);z-index:19"></div>
+    <section style="position:fixed;top:0;right:0;height:100vh;width:560px;max-width:92vw;background:var(--color-bg);border-left:1px solid var(--color-divider);box-shadow:var(--shadow-lg);z-index:20;display:flex;flex-direction:column;padding:22px 24px">
+      <div style="display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--color-divider);padding-bottom:14px;margin-bottom:14px">
+        <h2 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:24px;margin:0">{{ drawerNome }}</h2>
+        <select class="input" value="{{ nivelAtual }}" onChange="{{ mudarNivel }}" style="width:auto;padding:4px 8px;font-size:12px">
+          <sc-for list="{{ niveis }}" as="n" hint-placeholder-count="6">
+            <option value="{{ n.v }}">{{ n.rotulo }}</option>
+          </sc-for>
+        </select>
+        <button type="button" class="btn btn-ghost" onClick="{{ fecharDrawer }}" style="margin-left:auto">Fechar</button>
+      </div>
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Linhas da janela · {{ drawerTotal }}</div>
+      <div style="flex:1;overflow-y:auto">
+        <sc-for list="{{ drawerLinhas }}" as="l" hint-placeholder-count="8">
+          <div style="display:flex;gap:10px;padding:6px 2px;border-bottom:1px solid color-mix(in srgb,var(--color-divider) 55%,transparent);font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.5">
+            <span style="flex-shrink:0;width:64px;font-weight:600;color:{{ l.cor }}">{{ l.nivel }}</span>
+            <span style="white-space:pre-wrap;word-break:break-all;color:var(--color-neutral-800)">{{ l.texto }}</span>
+          </div>
+        </sc-for>
+        <sc-if value="{{ drawerVazio }}" hint-placeholder-val="{{ false }}">
+          <p style="color:var(--color-neutral-500);font-size:13px;padding:16px 0">Nenhuma linha na janela com esse filtro.</p>
+        </sc-if>
+      </div>
+    </section>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;aoVivo&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Simulação&quot;}, &quot;apiFora&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Simulação&quot;}, &quot;moeda&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;US$&quot;, &quot;R$&quot;], &quot;default&quot;: &quot;US$&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;IA · custos&quot;}}">
+class Component extends DCLogic {
+  state = { tela: 'visao', sel: null, nivel: '', agora: Math.floor(Date.now() / 1000), atualizadoEm: Math.floor(Date.now() / 1000), extras: [] };
+
+  componentDidMount() {
+    this.tick = setInterval(() => {
+      const agora = Math.floor(Date.now() / 1000);
+      this.setState({ agora, atualizadoEm: (this.props.aoVivo ?? true) && !(this.props.apiFora ?? false) ? agora : this.state.atualizadoEm });
+    }, 5000);
+    this.gerador = setInterval(() => {
+      if (!(this.props.aoVivo ?? true) || (this.props.apiFora ?? false)) return;
+      const pool = Component.POOL;
+      const novo = { ...pool[Math.floor(Math.random() * pool.length)], id: Date.now(), ts: Math.floor(Date.now() / 1000), novo: true };
+      this.setState((s) => ({ extras: [novo, ...s.extras].slice(0, 20) }));
+      setTimeout(() => this.setState((s) => ({ extras: s.extras.map((e) => ({ ...e, novo: false })) })), 2400);
+    }, 9000);
+  }
+  componentWillUnmount() { clearInterval(this.tick); clearInterval(this.gerador); }
+
+  static POOL = [
+    { container: 'prezzo', nivel: 'ERROR', linha: 'ORA-01017: invalid username/password; logon denied em CursorController.abrir()' },
+    { container: 'prezzo', nivel: 'CRITICAL', linha: 'Pool de conexões esgotado: 40/40 em uso há 32s — descartando requisição' },
+    { container: 'ecomm', nivel: 'ERROR', linha: 'HTTP 502 upstream timeout em /api/checkout/finalizar (12.04s)' },
+    { container: 'ecomm', nivel: 'WARNING', linha: 'Retry 3/5 na fila de pagamentos — gateway lento (p95 4.2s)' },
+    { container: 'bapi', nivel: 'ERROR', linha: "KeyError: 'cnpj' ao montar payload do parceiro 4417" },
+    { container: 'intranet', nivel: 'WARNING', linha: 'Sessão LDAP expirada para 3 usuários — renovando ticket' },
+  ];
+
+  static hq(ts, agora) { const s = Math.max(0, agora - ts); if (s < 60) return 'há ' + s + 's'; if (s < 3600) return 'há ' + Math.floor(s / 60) + 'min'; return 'há ' + Math.floor(s / 3600) + 'h'; }
+  static fn(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : String(v); }
+  static corNivel(n) { n = n.toUpperCase(); if (['ERROR', 'ERRO', 'CRIT', 'CRITICAL', 'FATAL'].includes(n)) return '#a2503c'; if (n === 'WARNING' || n === 'WARN') return 'var(--color-accent-700)'; return 'var(--color-neutral-500)'; }
+
+  renderVals() {
+    const agora = this.state.agora, tela = this.state.tela, apiFora = this.props.apiFora ?? false;
+    const SEV = { Verde: '#5f7a52', Amarelo: 'var(--color-accent)', Vermelho: '#a2503c', Parado: 'var(--color-neutral-400)' };
+    const baseC = [
+      { nome: 'prezzo', severidade: 'Vermelho', statusTexto: 'up 2 dias', err: 231, crit: 4, c5: 57, c4: 122, p95: '2.41s', max: '12.04s', reqs: 8340 },
+      { nome: 'ecomm', severidade: 'Amarelo', statusTexto: 'up 14 dias', err: 38, crit: 0, c5: 9, c4: 310, p95: '0.88s', max: '4.20s', reqs: 21200 },
+      { nome: 'supply', severidade: 'Parado', statusTexto: 'parado', err: 0, crit: 0, c5: 0, c4: 0, p95: null, max: null, reqs: 0 },
+      { nome: 'bapi', severidade: 'Verde', statusTexto: 'up 6 dias', err: 3, crit: 0, c5: 1, c4: 44, p95: '0.31s', max: '1.10s', reqs: 5410 },
+      { nome: 'intranet', severidade: 'Verde', statusTexto: 'up 21 dias', err: 1, crit: 0, c5: 0, c4: 12, p95: '0.19s', max: '0.72s', reqs: 1930 },
+    ];
+    const containers = baseC.map((c) => ({
+      ...c, cor: SEV[c.severidade],
+      err: Component.fn(c.err), crit: Component.fn(c.crit), c5: Component.fn(c.c5), c4: Component.fn(c.c4),
+      p95: c.p95 ?? '—', max: c.max ?? '—', reqs: Component.fn(c.reqs),
+      corErr: c.err > 50 ? '#a2503c' : 'inherit', corCrit: c.crit > 0 ? '#a2503c' : 'inherit',
+      fundoSel: this.state.sel === c.nome ? 'color-mix(in srgb,var(--color-accent) 8%,transparent)' : 'transparent',
+      clicar: () => this.setState({ sel: this.state.sel === c.nome ? null : c.nome, nivel: '' }),
+    }));
+    const problemas = baseC.filter((c) => c.severidade !== 'Verde').length;
+
+    const feedBase = [
+      { id: 8, container: 'prezzo', nivel: 'CRITICAL', linha: 'Pool de conexões esgotado: 40/40 em uso há 32s — descartando requisição', ts: agora - 48 },
+      { id: 7, container: 'prezzo', nivel: 'ERROR', linha: 'ORA-01017: invalid username/password; logon denied em CursorController.abrir()', ts: agora - 140 },
+      { id: 6, container: 'ecomm', nivel: 'ERROR', linha: 'HTTP 502 upstream timeout em /api/checkout/finalizar (12.04s)', ts: agora - 380 },
+      { id: 5, container: 'prezzo', nivel: 'ERROR', linha: 'Traceback (most recent call last): OracleController.executar linha 214', ts: agora - 700 },
+      { id: 4, container: 'bapi', nivel: 'ERROR', linha: "KeyError: 'cnpj' ao montar payload do parceiro 4417", ts: agora - 1500 },
+      { id: 3, container: 'ecomm', nivel: 'WARNING', linha: 'Retry 3/5 na fila de pagamentos — gateway lento (p95 4.2s)', ts: agora - 2400 },
+      { id: 2, container: 'intranet', nivel: 'WARNING', linha: 'Sessão LDAP expirada para 3 usuários — renovando ticket', ts: agora - 3900 },
+    ];
+    const feed = [...this.state.extras, ...feedBase].slice(0, 24).map((e) => ({
+      ...e, corNivel: Component.corNivel(e.nivel), quando: Component.hq(e.ts, agora),
+      anim: e.novo ? 'pulseNovo 2.2s ease-out' : 'none',
+      clicar: () => this.setState({ sel: e.container, nivel: e.nivel }),
+    }));
+
+    const alertas = [
+      { msg: 'supply parou de responder — último heartbeat 04:12', quando: 'há 2h' },
+      { msg: 'prezzo reiniciou (exit code 137, OOM)', quando: 'há 5h' },
+    ];
+
+    const LINHAS = {
+      prezzo: [
+        ['CRITICAL', 'Pool de conexões esgotado: 40/40 em uso há 32s — descartando requisição'],
+        ['ERROR', 'ORA-01017: invalid username/password; logon denied em CursorController.abrir()'],
+        ['ERROR', 'Traceback (most recent call last):\n  File "app/controllers/oracle.py", line 214, in executar\n    cursor.execute(sql, params)\ncx_Oracle.DatabaseError: ORA-00942'],
+        ['WARNING', 'Query lenta (4.8s): SELECT * FROM ALL_TAB_COLUMNS WHERE OWNER = :1'],
+        ['INFO', '200 GET /api/precos/consulta?sku=88412 (0.31s)'],
+        ['INFO', '200 POST /api/precos/recalcular lote=2211 (1.92s)'],
+        ['DEBUG', 'Cache de tabela DDL renovado: 148 tabelas em 0.4s'],
+      ],
+      ecomm: [
+        ['ERROR', 'HTTP 502 upstream timeout em /api/checkout/finalizar (12.04s)'],
+        ['WARNING', 'Retry 3/5 na fila de pagamentos — gateway lento (p95 4.2s)'],
+        ['INFO', '200 GET /api/catalogo/busca?q=cabo+usb (0.12s)'],
+        ['INFO', '201 POST /api/carrinho/item (0.09s)'],
+      ],
+      bapi: [["ERROR", "KeyError: 'cnpj' ao montar payload do parceiro 4417"], ['INFO', '200 GET /api/parceiros/4417 (0.22s)'], ['DEBUG', 'Webhook assinado e enfileirado: evento=pedido.criado']],
+      intranet: [['WARNING', 'Sessão LDAP expirada para 3 usuários — renovando ticket'], ['INFO', '200 GET /portal/home (0.19s)']],
+      supply: [],
+    };
+    const sel = this.state.sel, nivel = this.state.nivel;
+    const grupoErro = ['ERROR', 'ERRO', 'CRIT', 'CRITICAL', 'FATAL'];
+    const todas = (LINHAS[sel] || []).filter(([n]) => !nivel || n === nivel || (grupoErro.includes(nivel) && grupoErro.includes(n) && nivel === n));
+    const drawerLinhas = todas.map(([n, t]) => ({ nivel: n, texto: t, cor: Component.corNivel(n) }));
+
+    const niveis = ['', 'CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'].map((v) => ({ v, rotulo: v === '' ? 'todos os níveis' : v }));
+
+    // histórico: 24 células por container, intensidade 0-5
+    const perfil = { prezzo: [0,0,1,0,2,3,2,4,5,5,3,2,1,2,3,4,5,4,3,2,2,3,4,5], ecomm: [0,0,0,0,0,1,1,2,2,1,1,2,3,2,1,1,2,2,1,1,2,2,1,1], bapi: [0,0,0,0,0,0,0,1,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0], intranet: [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], supply: [1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] };
+    const CORES_INT = ['var(--color-neutral-200)', 'var(--color-accent-100)', 'var(--color-accent-200)', 'var(--color-accent-400)', 'var(--color-accent-600)', '#a2503c'];
+    const historico = ['prezzo', 'ecomm', 'bapi', 'intranet', 'supply'].map((nome) => {
+      const horas = perfil[nome].map((v, i) => ({ cor: CORES_INT[v], t: (i < 10 ? '0' : '') + i + 'h — nível ' + v }));
+      const total = perfil[nome].reduce((s, v) => s + v * 9, 0);
+      return { nome, horas, total: Component.fn(total) };
+    });
+
+    // heatmap julho/2026 (qua 1/jul), col = semana, linha = dia da semana (seg=0)
+    const ativ = [2,3,0,0,4,5,3,4,2,0,0,3,4,5,5,3,1,0,2,3,4,4,5,0,0,3,4,5,0,0,0];
+    const heatmap = [];
+    const offset = 2; // 1/jul/2026 = quarta (seg=0)
+    for (let i = 0; i < offset; i++) heatmap.push({ cor: 'transparent', t: '' });
+    for (let d = 0; d < 31; d++) { const hoje = d === 27; heatmap.push({ cor: d > 27 ? 'transparent' : CORES_INT[ativ[d]], t: (d + 1) + '/jul — ' + (ativ[d] === 0 ? 'sem atividade' : 'nível ' + ativ[d]) + (hoje ? ' (hoje)' : '') }); }
+
+    const moeda = this.props.moeda ?? 'US$';
+    const custoUSD = 186.4, cambioV = 5.42;
+    const semanas = [
+      { rotulo: '29/jun–5', h: 14.5 }, { rotulo: '6–12/jul', h: 18.3 }, { rotulo: '13–19/jul', h: 12.1 }, { rotulo: '20–26/jul', h: 16.4 },
+    ].map((s) => { const m = Math.round(s.h * 60); return { rotulo: s.rotulo, horas: Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') + 'm', larg: Math.round((s.h / 18.3) * 100) + '%' }; });
+    const modelos = [
+      { nome: 'claude-sonnet-4-5', tokens: '301.2M', usd: 121.8, cor: 'var(--color-accent)' },
+      { nome: 'claude-opus-4-1', tokens: '48.9M', usd: 52.3, cor: '#a2503c' },
+      { nome: 'claude-haiku-4-5', tokens: '55.1M', usd: 9.1, cor: '#5f7a52' },
+      { nome: 'gpt-5-codex', tokens: '7.4M', usd: 3.2, cor: 'var(--color-neutral-500)' },
+    ].map((m) => ({ ...m, custo: moeda === 'R$' ? 'R$ ' + (m.usd * cambioV).toFixed(0) : 'US$ ' + m.usd.toFixed(2), larg: Math.round((m.usd / 121.8) * 100) + '%' }));
+
+    return {
+      telaVisao: tela === 'visao', telaHist: tela === 'hist', telaIa: tela === 'ia', telaConf: tela === 'conf',
+      curVisao: tela === 'visao' ? 'page' : undefined, curHist: tela === 'hist' ? 'page' : undefined,
+      curIa: tela === 'ia' ? 'page' : undefined, curConf: tela === 'conf' ? 'page' : undefined,
+      irVisao: (e) => { e.preventDefault(); this.setState({ tela: 'visao' }); },
+      irHist: (e) => { e.preventDefault(); this.setState({ tela: 'hist' }); },
+      irIa: (e) => { e.preventDefault(); this.setState({ tela: 'ia' }); },
+      irConf: (e) => { e.preventDefault(); this.setState({ tela: 'conf' }); },
+      resumo: problemas + ' problemas · 5 containers · 36.9k reqs · 277 erros',
+      atualizadoHa: apiFora ? 'há 4min (sem resposta)' : Component.hq(this.state.atualizadoEm, agora),
+      apiFora, corAoVivo: apiFora ? 'var(--color-neutral-400)' : '#5f7a52',
+      containers, feed, alertas, temAlertas: alertas.length > 0,
+      drawerAberto: sel !== null && !!LINHAS[sel], drawerNome: sel ?? '', drawerLinhas,
+      drawerTotal: drawerLinhas.length + (drawerLinhas.length === 1 ? ' linha' : ' linhas'),
+      drawerVazio: drawerLinhas.length === 0, nivelAtual: nivel, niveis,
+      mudarNivel: (e) => this.setState({ nivel: e.target.value }),
+      fecharDrawer: () => this.setState({ sel: null, nivel: '' }),
+      historico, heatmap, semanas, modelos,
+      cambio: 'R$ 5,42', custoMes: moeda === 'R$' ? 'R$ 1.010' : 'US$ 186,40',
+      custoMesAlt: moeda === 'R$' ? 'US$ 186,40' : '≈ R$ 1.010,29',
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -21,6 +21,7 @@ a{color:var(--color-accent-700)}a:hover{color:var(--color-accent)}
     <span class="nav-brand">dev-cli · portal</span>
     <a href="#" aria-current="{{ curVisao }}" onClick="{{ irVisao }}">Visão geral</a>
     <a href="#" aria-current="{{ curHist }}" onClick="{{ irHist }}">Histórico</a>
+    <a href="#" aria-current="{{ curTest }}" onClick="{{ irTest }}">Testes</a>
     <a href="#" aria-current="{{ curIa }}" onClick="{{ irIa }}">IA · custos</a>
     <a href="#" aria-current="{{ curConf }}" onClick="{{ irConf }}">Configuração</a>
     <span style="margin-left:auto;font-size:12px;color:var(--color-neutral-600);font-feature-settings:'tnum'">{{ resumo }}</span>
@@ -135,6 +136,112 @@ a{color:var(--color-accent-700)}a:hover{color:var(--color-accent)}
         <span style="width:12px;height:12px;border-radius:2px;background:var(--color-accent-600)"></span>
         <span style="width:12px;height:12px;border-radius:2px;background:#a2503c"></span>
       mais</span>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ telaTest }}" hint-placeholder-val="{{ false }}">
+  <main data-screen-label="Testes e2e" style="max-width:1180px;margin:0 auto;padding:36px 24px 64px">
+    <header style="border-bottom:1px solid var(--color-divider);padding-bottom:18px;margin-bottom:28px;display:flex;align-items:baseline;gap:16px">
+      <h1 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:34px;margin:0">Testes · e2e</h1>
+      <span style="font-size:13px;color:var(--color-neutral-600)">pipelines de integração · <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">dev-cli testes rodar</span></span>
+      <span style="margin-left:auto;font-size:12px;color:var(--color-neutral-500);font-feature-settings:'tnum'">{{ resumoTestes }}</span>
+      <button type="button" class="btn btn-primary" onClick="{{ abrirCadastro }}" style="padding:5px 16px;font-size:12.5px">Nova suíte</button>
+    </header>
+    <p style="font-size:13px;color:var(--color-neutral-600);margin:0 0 24px;max-width:78ch">Cada suíte é uma pipeline de comandos CLI encadeados: execução seguida de validações dos dados produzidos. Se uma etapa falha — por erro de execução <em>ou</em> por validação —, a pipeline para e as etapas seguintes não rodam.</p>
+    <sc-if value="{{ cadastroAberto }}" hint-placeholder-val="{{ false }}">
+      <section class="card" style="padding:22px 24px;margin-bottom:24px;border-color:color-mix(in srgb,var(--color-accent) 45%,var(--color-divider))">
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:18px">
+          <h2 style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:22px;margin:0">Nova suíte</h2>
+          <span style="font-size:12px;color:var(--color-neutral-500)">grava em <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px">/etc/dev-cli/testes/&lt;id&gt;.toml</span></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
+          <div class="field"><label>Nome da suíte</label><input class="input" type="text" placeholder="prezzo · exportar planilha" value="{{ fNome }}" onChange="{{ mudarNome }}"></div>
+          <div class="field"><label>Timeout por etapa (s)</label><input class="input" type="number" value="{{ fTimeout }}" onChange="{{ mudarTimeout }}"></div>
+        </div>
+        <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:10px">Etapas · executam em ordem, param na primeira falha</div>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
+          <sc-for list="{{ fPassos }}" as="fp" hint-placeholder-count="2">
+            <div style="display:grid;grid-template-columns:26px 150px 1fr 1fr auto;gap:12px;align-items:start;border-top:1px solid color-mix(in srgb,var(--color-divider) 60%,transparent);padding-top:12px">
+              <span style="font-feature-settings:'tnum';font-size:12.5px;color:var(--color-neutral-500);padding-top:9px">{{ fp.num }}</span>
+              <div class="field"><label>Tipo</label>
+                <select class="input" value="{{ fp.tipo }}" onChange="{{ fp.mudarTipo }}" style="padding:6px 8px;font-size:12.5px">
+                  <option value="exec">execução</option>
+                  <option value="valida">validação</option>
+                </select>
+              </div>
+              <div class="field"><label>Comando CLI</label><input class="input" type="text" placeholder="echo oi > oi.txt" value="{{ fp.cmd }}" onChange="{{ fp.mudarCmd }}" style="font-family:ui-monospace,Menlo,monospace;font-size:12px"></div>
+              <div class="field" style="opacity:{{ fp.opacEsperado }}"><label>Saída esperada (stdout)</label><input class="input" type="text" placeholder="existe" value="{{ fp.esperado }}" onChange="{{ fp.mudarEsperado }}" disabled="{{ fp.ehExec }}" style="font-family:ui-monospace,Menlo,monospace;font-size:12px"></div>
+              <button type="button" class="btn btn-ghost" onClick="{{ fp.remover }}" disabled="{{ fp.unica }}" style="padding:4px 10px;font-size:12px;margin-top:22px">Remover</button>
+            </div>
+          </sc-for>
+        </div>
+        <button type="button" class="btn btn-ghost" onClick="{{ addPasso }}" style="padding:4px 14px;font-size:12.5px;margin-bottom:20px">+ Adicionar etapa</button>
+        <p style="font-size:12px;color:var(--color-neutral-500);margin:0 0 18px">Etapas de <em>execução</em> falham por exit code ≠ 0. Etapas de <em>validação</em> falham também quando o comando roda sem erro mas o stdout não bate com a saída esperada.</p>
+        <sc-if value="{{ fErro }}" hint-placeholder-val="{{ false }}">
+          <p style="font-size:12.5px;color:#a2503c;margin:0 0 14px">{{ fErroMsg }}</p>
+        </sc-if>
+        <div style="display:flex;gap:10px;border-top:1px solid var(--color-divider);padding-top:18px">
+          <button type="button" class="btn btn-primary" onClick="{{ salvarSuite }}">Salvar suíte</button>
+          <button type="button" class="btn btn-ghost" onClick="{{ fecharCadastro }}">Cancelar</button>
+        </div>
+      </section>
+    </sc-if>
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <sc-for list="{{ suites }}" as="s" hint-placeholder-count="4">
+        <section class="card" style="padding:0;overflow:hidden">
+          <div onClick="{{ s.alternar }}" style="display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer" style-hover="background:color-mix(in srgb,var(--color-accent) 5%,transparent)">
+            <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:{{ s.cor }};flex-shrink:0"></span>
+            <span style="font-weight:600;font-size:14.5px">{{ s.nome }}</span>
+            <span style="font-size:12px;color:{{ s.corResumo }}">{{ s.resumo }}</span>
+            <span style="margin-left:auto;font-size:12px;color:var(--color-neutral-500);font-feature-settings:'tnum'">{{ s.duracao }}</span>
+            <button type="button" class="btn btn-ghost" onClick="{{ s.rodar }}" disabled="{{ s.rodando }}" style="padding:4px 14px;font-size:12.5px">{{ s.rotuloBotao }}</button>
+          </div>
+          <sc-if value="{{ s.aberto }}" hint-placeholder-val="{{ false }}">
+            <div style="border-top:1px solid var(--color-divider);padding:16px 18px 20px">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+                <sc-for list="{{ s.chips }}" as="ch" hint-placeholder-count="4">
+                  <span style="display:flex;align-items:center;gap:8px">
+                    <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid {{ ch.borda }};color:{{ ch.corTexto }};border-radius:999px;padding:3px 11px;font-size:11.5px;font-feature-settings:'tnum';background:{{ ch.fundo }}">{{ ch.rotulo }}</span>
+                    <sc-if value="{{ ch.temSeta }}" hint-placeholder-val="{{ true }}"><span style="color:var(--color-neutral-400);font-size:13px">→</span></sc-if>
+                  </span>
+                </sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column">
+                <sc-for list="{{ s.passos }}" as="p" hint-placeholder-count="4">
+                  <div style="display:grid;grid-template-columns:26px 110px 1fr auto;gap:14px;padding:11px 0;border-top:1px solid color-mix(in srgb,var(--color-divider) 60%,transparent);opacity:{{ p.opacidade }}">
+                    <span style="font-feature-settings:'tnum';font-size:12.5px;color:var(--color-neutral-500)">{{ p.num }}</span>
+                    <span class="tag {{ p.classeTag }}" style="align-self:start;justify-self:start">{{ p.tipoRotulo }}</span>
+                    <div style="min-width:0">
+                      <div style="font-size:13.5px;margin-bottom:3px">{{ p.rotulo }}</div>
+                      <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--color-neutral-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">$ {{ p.cmd }}</div>
+                      <sc-if value="{{ p.temFalhaValida }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top:8px;border:1px solid color-mix(in srgb,#a2503c 45%,var(--color-divider));border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;background:color-mix(in srgb,#a2503c 5%,transparent)">
+                          <div style="color:#7c3a2e;margin-bottom:6px">Comando executou sem erro (exit 0), mas o dado não bate:</div>
+                          <div style="display:grid;grid-template-columns:70px 1fr;gap:4px 10px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px">
+                            <span style="color:var(--color-neutral-500)">esperado</span><span style="color:#5f7a52">{{ p.esperado }}</span>
+                            <span style="color:var(--color-neutral-500)">obtido</span><span style="color:#a2503c">{{ p.obtido }}</span>
+                          </div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ p.temFalhaExec }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top:8px;border:1px solid color-mix(in srgb,#a2503c 45%,var(--color-divider));border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;background:color-mix(in srgb,#a2503c 5%,transparent)">
+                          <div style="color:#7c3a2e;margin-bottom:6px">Falha de execução — exit {{ p.exit }}:</div>
+                          <div style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#a2503c;white-space:pre-wrap">{{ p.stderr }}</div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ p.temSaida }}" hint-placeholder-val="{{ false }}">
+                        <div style="margin-top:6px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--color-neutral-500)">↳ {{ p.saida }}</div>
+                      </sc-if>
+                    </div>
+                    <span style="font-size:12px;white-space:nowrap;color:{{ p.corStatus }}">{{ p.statusRotulo }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
     </div>
   </main>
   </sc-if>
@@ -273,7 +380,7 @@ a{color:var(--color-accent-700)}a:hover{color:var(--color-accent)}
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;aoVivo&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Simulação&quot;}, &quot;apiFora&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Simulação&quot;}, &quot;moeda&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;US$&quot;, &quot;R$&quot;], &quot;default&quot;: &quot;US$&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;IA · custos&quot;}}">
 class Component extends DCLogic {
-  state = { tela: 'visao', sel: null, nivel: '', agora: Math.floor(Date.now() / 1000), atualizadoEm: Math.floor(Date.now() / 1000), extras: [] };
+  state = { tela: 'visao', sel: null, nivel: '', agora: Math.floor(Date.now() / 1000), atualizadoEm: Math.floor(Date.now() / 1000), extras: [], suiteAberta: 'prezzo-recalc', execs: {}, suitesNovas: [], cadastro: null };
 
   componentDidMount() {
     this.tick = setInterval(() => {
@@ -298,6 +405,93 @@ class Component extends DCLogic {
     { container: 'bapi', nivel: 'ERROR', linha: "KeyError: 'cnpj' ao montar payload do parceiro 4417" },
     { container: 'intranet', nivel: 'WARNING', linha: 'Sessão LDAP expirada para 3 usuários — renovando ticket' },
   ];
+
+  static SUITES = [
+    { id: 'sanidade-arquivo', nome: 'sanidade · escrita de arquivo', duracao: '0.3s', passos: [
+      { tipo: 'exec', rotulo: 'Executa o comando', cmd: 'echo oi > oi.txt', resultado: 'ok' },
+      { tipo: 'valida', rotulo: 'Arquivo foi criado', cmd: 'test -f oi.txt && echo existe', resultado: 'ok', saida: 'existe' },
+      { tipo: 'valida', rotulo: 'Conteúdo tem a linha "oi"', cmd: "grep -c '^oi$' oi.txt", resultado: 'ok', saida: '1' },
+    ]},
+    { id: 'prezzo-recalc', nome: 'prezzo · recalcular preços', duracao: '6.1s', passos: [
+      { tipo: 'exec', rotulo: 'Dispara o recálculo do lote', cmd: 'curl -sf -X POST prezzo:8000/api/precos/recalcular -d lote=2211', resultado: 'ok', saida: 'HTTP 202 · job 8812 enfileirado' },
+      { tipo: 'valida', rotulo: 'Job registrado no Oracle', cmd: 'dev-cli sql "SELECT COUNT(*) FROM JOBS WHERE ID = 8812"', resultado: 'ok', saida: '1' },
+      { tipo: 'valida', rotulo: 'Job terminou com status "concluido"', cmd: "curl -sf prezzo:8000/api/jobs/8812 | jq -r .status", resultado: 'falha-valida', esperado: 'concluido', obtido: 'pendente' },
+      { tipo: 'valida', rotulo: 'Preços do lote foram gravados', cmd: 'dev-cli sql "SELECT COUNT(*) FROM PRECOS WHERE LOTE = 2211"', resultado: 'ok', saida: '' },
+    ]},
+    { id: 'ecomm-checkout', nome: 'ecomm · checkout de ponta a ponta', duracao: '12.4s', passos: [
+      { tipo: 'exec', rotulo: 'Cria o carrinho com um item', cmd: 'curl -sf -X POST ecomm:8080/api/carrinho/item -d sku=88412', resultado: 'ok', saida: 'HTTP 201 · carrinho 3301' },
+      { tipo: 'exec', rotulo: 'Finaliza o checkout', cmd: 'curl -sf -X POST ecomm:8080/api/checkout/finalizar -d carrinho=3301', resultado: 'falha-exec', exit: 7, stderr: 'curl: (7) Failed to connect to ecomm port 8080 after 12003 ms: Connection refused' },
+      { tipo: 'valida', rotulo: 'Pedido existe no banco', cmd: 'dev-cli sql "SELECT COUNT(*) FROM PEDIDOS WHERE CARRINHO = 3301"', resultado: 'ok', saida: '' },
+      { tipo: 'valida', rotulo: 'E-mail de confirmação enfileirado', cmd: 'dev-cli fila contar --topico email.confirmacao', resultado: 'ok', saida: '' },
+    ]},
+    { id: 'bapi-webhook', nome: 'bapi · webhook de parceiro', duracao: '2.8s', passos: [
+      { tipo: 'exec', rotulo: 'Simula o evento pedido.criado', cmd: 'dev-cli webhook enviar --evento pedido.criado --parceiro 4417', resultado: 'ok', saida: 'assinado e entregue · HTTP 200' },
+      { tipo: 'valida', rotulo: 'Entrega registrada no log', cmd: "dev-cli logs grep bapi 'webhook.*4417' --janela 5m --contar", resultado: 'ok', saida: '1' },
+      { tipo: 'valida', rotulo: 'Payload tem o campo cnpj', cmd: 'dev-cli webhook ultimo --parceiro 4417 | jq -e .cnpj', resultado: 'ok', saida: '"04.417.000/0001-90"' },
+    ]},
+  ];
+
+  todasSuites() { return [...this.state.suitesNovas, ...Component.SUITES]; }
+
+  rodarSuite(id) {
+    const suite = this.todasSuites().find((s) => s.id === id);
+    if (!suite || (this.state.execs[id] && this.state.execs[id].rodando)) return;
+    const setExec = (v) => this.setState((s) => ({ execs: { ...s.execs, [id]: v }, suiteAberta: id }));
+    setExec({ rodando: true, atual: 0 });
+    let i = 0;
+    const avancar = () => {
+      const passo = suite.passos[i];
+      const falhou = passo.resultado !== 'ok';
+      i++;
+      if (falhou || i >= suite.passos.length) { setExec({ rodando: false, atual: -1 }); return; }
+      setExec({ rodando: true, atual: i });
+      this['timerSuite_' + id] = setTimeout(avancar, 750);
+    };
+    this['timerSuite_' + id] = setTimeout(avancar, 750);
+  }
+
+  valsCadastro() {
+    const cad = this.state.cadastro;
+    const setCad = (patch) => this.setState((s) => ({ cadastro: { ...s.cadastro, ...patch } }));
+    const setPasso = (i, patch) => this.setState((s) => {
+      const passos = s.cadastro.passos.map((p, j) => (j === i ? { ...p, ...patch } : p));
+      return { cadastro: { ...s.cadastro, passos } };
+    });
+    const fPassos = cad ? cad.passos.map((p, i) => ({
+      num: (i + 1) + '.', tipo: p.tipo, cmd: p.cmd, esperado: p.esperado,
+      ehExec: p.tipo === 'exec', opacEsperado: p.tipo === 'exec' ? '.45' : '1',
+      unica: cad.passos.length <= 1,
+      mudarTipo: (e) => setPasso(i, { tipo: e.target.value }),
+      mudarCmd: (e) => setPasso(i, { cmd: e.target.value }),
+      mudarEsperado: (e) => setPasso(i, { esperado: e.target.value }),
+      remover: () => this.setState((s) => ({ cadastro: { ...s.cadastro, passos: s.cadastro.passos.filter((_, j) => j !== i) } })),
+    })) : [];
+    return {
+      cadastroAberto: !!cad,
+      abrirCadastro: () => this.setState({ cadastro: { nome: '', timeout: 30, erro: '', passos: [
+        { tipo: 'exec', cmd: '', esperado: '' }, { tipo: 'valida', cmd: '', esperado: '' },
+      ] } }),
+      fecharCadastro: () => this.setState({ cadastro: null }),
+      fNome: cad ? cad.nome : '', fTimeout: cad ? cad.timeout : 30, fPassos,
+      fErro: !!(cad && cad.erro), fErroMsg: cad ? cad.erro : '',
+      mudarNome: (e) => setCad({ nome: e.target.value }),
+      mudarTimeout: (e) => setCad({ timeout: e.target.value }),
+      addPasso: () => this.setState((s) => ({ cadastro: { ...s.cadastro, passos: [...s.cadastro.passos, { tipo: 'valida', cmd: '', esperado: '' }] } })),
+      salvarSuite: () => {
+        const c = this.state.cadastro;
+        if (!c.nome.trim()) return setCad({ erro: 'Dê um nome à suíte.' });
+        if (c.passos.some((p) => !p.cmd.trim())) return setCad({ erro: 'Toda etapa precisa de um comando CLI.' });
+        if (c.passos.some((p) => p.tipo === 'valida' && !p.esperado.trim())) return setCad({ erro: 'Etapas de validação precisam da saída esperada.' });
+        const id = 'nova-' + Date.now();
+        const suite = { id, nome: c.nome.trim(), duracao: '—', passos: c.passos.map((p) => ({
+          tipo: p.tipo, cmd: p.cmd.trim(), esperado: p.tipo === 'valida' ? p.esperado.trim() : undefined,
+          rotulo: p.tipo === 'exec' ? 'Executa o comando' : 'Valida: stdout = "' + p.esperado.trim() + '"',
+          resultado: 'ok', saida: p.tipo === 'valida' ? p.esperado.trim() : '',
+        })) };
+        this.setState((s) => ({ suitesNovas: [suite, ...s.suitesNovas], cadastro: null, suiteAberta: id }));
+      },
+    };
+  }
 
   static hq(ts, agora) { const s = Math.max(0, agora - ts); if (s < 60) return 'há ' + s + 's'; if (s < 3600) return 'há ' + Math.floor(s / 60) + 'min'; return 'há ' + Math.floor(s / 3600) + 'h'; }
   static fn(v) { return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : String(v); }
@@ -398,8 +592,67 @@ class Component extends DCLogic {
       { nome: 'gpt-5-codex', tokens: '7.4M', usd: 3.2, cor: 'var(--color-neutral-500)' },
     ].map((m) => ({ ...m, custo: moeda === 'R$' ? 'R$ ' + (m.usd * cambioV).toFixed(0) : 'US$ ' + m.usd.toFixed(2), larg: Math.round((m.usd / 121.8) * 100) + '%' }));
 
+    const ST = {
+      ok: { rotulo: 'passou', cor: '#5f7a52' },
+      'falha-exec': { rotulo: 'falhou · execução', cor: '#a2503c' },
+      'falha-valida': { rotulo: 'falhou · validação', cor: '#a2503c' },
+      pulado: { rotulo: 'não executado', cor: 'var(--color-neutral-400)' },
+      rodando: { rotulo: 'rodando…', cor: 'var(--color-accent-700)' },
+      pendente: { rotulo: 'aguardando', cor: 'var(--color-neutral-400)' },
+    };
+    let falhando = 0;
+    const suites = this.todasSuites().map((su) => {
+      const exec = this.state.execs[su.id];
+      const rodando = !!(exec && exec.rodando);
+      let parouEm = -1;
+      const passos = su.passos.map((p, i) => {
+        let status = p.resultado;
+        if (parouEm >= 0 && i > parouEm) status = 'pulado';
+        else if (status !== 'ok' && parouEm < 0) parouEm = i;
+        if (rodando) { if (i < exec.atual) status = p.resultado; else if (i === exec.atual) status = 'rodando'; else status = 'pendente'; }
+        const st = ST[status];
+        return {
+          num: (i + 1) + '.', rotulo: p.rotulo, cmd: p.cmd, status,
+          tipoRotulo: p.tipo === 'exec' ? 'execução' : 'validação',
+          classeTag: p.tipo === 'exec' ? 'tag-accent' : 'tag-neutral',
+          statusRotulo: st.rotulo, corStatus: st.cor,
+          opacidade: status === 'pulado' || status === 'pendente' ? '.5' : '1',
+          temFalhaValida: status === 'falha-valida', temFalhaExec: status === 'falha-exec',
+          esperado: p.esperado ?? '', obtido: p.obtido ?? '', exit: p.exit ?? 0, stderr: p.stderr ?? '',
+          temSaida: status === 'ok' && !!p.saida, saida: p.saida ?? '',
+        };
+      });
+      const falha = !rodando && passos.find((p) => p.status === 'falha-exec' || p.status === 'falha-valida');
+      if (falha) falhando++;
+      const okTotal = passos.filter((p) => p.status === 'ok').length;
+      const chips = passos.map((p, i) => ({
+        rotulo: 'cli ' + (i + 1),
+        temSeta: i < passos.length - 1,
+        borda: p.status === 'ok' ? '#5f7a52' : p.status.startsWith('falha') ? '#a2503c' : p.status === 'rodando' ? 'var(--color-accent)' : 'var(--color-divider)',
+        corTexto: p.status === 'ok' ? '#5f7a52' : p.status.startsWith('falha') ? '#a2503c' : p.status === 'rodando' ? 'var(--color-accent-700)' : 'var(--color-neutral-400)',
+        fundo: p.status === 'rodando' ? 'color-mix(in srgb,var(--color-accent) 8%,transparent)' : 'transparent',
+      }));
+      return {
+        id: su.id, nome: su.nome, duracao: rodando ? '' : su.duracao, passos, chips,
+        aberto: this.state.suiteAberta === su.id,
+        cor: rodando ? 'var(--color-accent)' : falha ? '#a2503c' : '#5f7a52',
+        resumo: rodando ? 'rodando etapa ' + (exec.atual + 1) + ' de ' + passos.length + '…'
+          : falha ? okTotal + ' de ' + passos.length + ' etapas · parou na etapa ' + (passos.indexOf(falha) + 1)
+          : passos.length + ' etapas · todas passaram',
+        corResumo: falha && !rodando ? '#a2503c' : 'var(--color-neutral-500)',
+        rodando, rotuloBotao: rodando ? 'Rodando…' : 'Rodar',
+        alternar: () => this.setState({ suiteAberta: this.state.suiteAberta === su.id ? null : su.id }),
+        rodar: (e) => { e.stopPropagation(); this.rodarSuite(su.id); },
+      };
+    });
+
     return {
       telaVisao: tela === 'visao', telaHist: tela === 'hist', telaIa: tela === 'ia', telaConf: tela === 'conf',
+      telaTest: tela === 'test',
+      curTest: tela === 'test' ? 'page' : undefined,
+      irTest: (e) => { e.preventDefault(); this.setState({ tela: 'test' }); },
+      suites, resumoTestes: this.todasSuites().length + ' suítes · ' + falhando + ' falhando · última execução há 18min',
+      ...this.valsCadastro(),
       curVisao: tela === 'visao' ? 'page' : undefined, curHist: tela === 'hist' ? 'page' : undefined,
       curIa: tela === 'ia' ? 'page' : undefined, curConf: tela === 'conf' ? 'page' : undefined,
       irVisao: (e) => { e.preventDefault(); this.setState({ tela: 'visao' }); },

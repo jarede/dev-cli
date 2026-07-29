@@ -23,7 +23,7 @@ Fonte completa: `classical-tokens.css` (variáveis `--color-*`, `--space-*`, `--
 ## Telas
 
 ### 1. Nav global (todas as telas)
-Barra sticky no topo (fundo `--color-bg`, hairline embaixo): marca "dev-cli · portal" (heading serif), links **Visão geral / Histórico / IA · custos / Configuração** (ativo com `aria-current="page"`, sublinhado em acento), e à direita o resumo global em 12px neutro: `"N problemas · 5 containers · 36.9k reqs · 277 erros"` (derivado dos containers, como o `Cabecalho.tsx` atual). Roteamento: pode ser estado no `App` (como hoje) ou react-router se preferirem — o protótipo usa estado.
+Barra sticky no topo (fundo `--color-bg`, hairline embaixo): marca "dev-cli · portal" (heading serif), links **Visão geral / Histórico / Testes / IA · custos / Configuração** (ativo com `aria-current="page"`, sublinhado em acento), e à direita o resumo global em 12px neutro: `"N problemas · 5 containers · 36.9k reqs · 277 erros"` (derivado dos containers, como o `Cabecalho.tsx` atual). Roteamento: pode ser estado no `App` (como hoje) ou react-router se preferirem — o protótipo usa estado.
 
 Banner de API fora (substitui `.erro-conexao`): borda 1px `#a2503c`, texto `#7c3a2e`, fundo tint 7%, radius `--radius-md`: "Sem resposta da API — o dev-server está rodando? Mostrando os últimos dados conhecidos."
 
@@ -40,7 +40,25 @@ Slide-over à direita, 560px (max 92vw), fundo `--color-bg`, borda esquerda hair
 ### 4. Histórico (tela nova)
 Requer endpoint novo no dev-server (ex.: `/api/containers/historico?horas=24` → contagem de erros+críticos por hora por container). UI: uma linha por container: [nome 110px semibold | strip de 24 células (grid 24 colunas, gap 3px, altura 22px, radius 2px, borda hairline, cor pela escala de intensidade 0–5) | total à direita tnum]. Rodapé: "00h ——— agora" + legenda de 5 quadrados (menos → mais). Tooltip por célula via `title`.
 
-### 5. IA · custos (tela nova — versão web do `dev-cli ai stats`)
+### 5. Testes · e2e (tela nova)
+Gerencia suítes de testes de integração e2e. Cada suíte é uma **pipeline de comandos CLI encadeados**: uma etapa de execução seguida de validações dos dados produzidos. Semântica central: as etapas rodam **em ordem**; se uma falha — por erro de execução (exit ≠ 0) **ou** por validação (exit 0 mas stdout ≠ esperado) — a pipeline **para** e as etapas seguintes ficam "não executado". Ex. canônico: `echo oi > oi.txt` → valida `test -f oi.txt` → valida `grep -c '^oi$' oi.txt`.
+
+Requer no backend: modelo de suíte (TOML em `/etc/dev-cli/testes/<id>.toml`), runner sequencial (`dev-cli testes rodar [id]`) que registra por etapa: tipo (exec|valida), comando, exit code, stdout, stderr, esperado; e endpoints para listar suítes, criar suíte e disparar/acompanhar execução (polling do estado da execução em andamento).
+
+UI:
+- Header da tela: h1 "Testes · e2e" + subtítulo com `dev-cli testes rodar` em mono + resumo à direita ("N suítes · M falhando · última execução há X") + botão primário **"Nova suíte"**.
+- Parágrafo explicando a semântica da pipeline (ver protótipo).
+- **Lista de suítes**: um `.card` (padding 0) por suíte. Header clicável (toggle expand, hover tint acento 5%): bolinha de status 9px (verde `#5f7a52` = passou, vermelho `#a2503c` = falhou, acento = rodando), nome semibold, resumo 12px ("3 de 4 etapas · parou na etapa 3", vermelho quando falha), duração tnum à direita, botão ghost "Rodar" (vira "Rodando…" desabilitado).
+- **Expandido**: (a) stepper horizontal de chips pill "cli 1 → cli 2 → cli 3" (borda/texto na cor do status da etapa; setas → em neutral-400; chip rodando com fundo tint acento 8%); (b) lista de etapas, cada uma em grid [nº | tag execução(`.tag-accent`)/validação(`.tag-neutral`) | rótulo + comando em mono 11.5px prefixado "$ " + detalhe | status à direita]. Etapas puladas/pendentes com opacity .5.
+- **Detalhe de falha de validação** (o caso "roda sem erro mas o dado não bate"): bloco bordado vermelho, texto "Comando executou sem erro (exit 0), mas o dado não bate:", grid mono esperado (verde) × obtido (vermelho).
+- **Detalhe de falha de execução**: bloco bordado vermelho "Falha de execução — exit N:" + stderr em mono pre-wrap vermelho.
+- Etapa ok com saída: linha mono 11.5px neutra "↳ stdout".
+- **Rodar (simulação no protótipo)**: etapas avançam ~750ms cada, status "rodando…" na atual, "aguardando" nas seguintes; na implementação real, polling do estado da execução.
+- **Formulário "Nova suíte"** (card bordado com acento acima da lista): campos Nome + Timeout por etapa (s); lista dinâmica de etapas — [nº | select tipo execução/validação | input Comando CLI (mono) | input Saída esperada (mono, desabilitado p/ execução, opacity .45) | botão Remover (desabilitado se só 1 etapa)]; botão ghost "+ Adicionar etapa"; nota explicando a diferença exec/validação; validação do form (nome obrigatório, comando em toda etapa, saída esperada nas validações — erro em vermelho 12.5px); ações "Salvar suíte" (primário) + "Cancelar". Ao salvar, a suíte entra no topo da lista, já expandida.
+
+Dados de exemplo do protótipo: 4 suítes — "sanidade · escrita de arquivo" (o exemplo do echo, passa), "prezzo · recalcular preços" (falha de VALIDAÇÃO na etapa 3: esperado "concluido", obtido "pendente"; etapa 4 não executa), "ecomm · checkout de ponta a ponta" (falha de EXECUÇÃO na etapa 2: curl exit 7; 3–4 não executam), "bapi · webhook de parceiro" (passa).
+
+### 6. IA · custos (tela nova — versão web do `dev-cli ai stats`)
 Requer expor os dados dos comandos `ai stats opencode|claude` na API (eles já saem em `--json`).
 - **Faixa de KPIs**: 4 células numa moldura única (borda 1px, divisórias internas hairline): Custo no mês (serif 34px tnum, ex. "US$ 186,40", linha secundária "≈ R$ 1.010,29"), Tokens ("412.6M" / "86% em cache"), Horas com Claude ("61h20m" / média por dia ativo), Streak ("14 dias" / "melhor: 23 dias"). Kickers uppercase 11px.
 - **Heatmap do mês** (GitHub-style): grid `grid-auto-flow: column`, 7 linhas de 18px, gap 4px; rótulos seg/qua/sex/dom à esquerda; células 18px radius 3px com borda hairline, cores pela escala de intensidade; offset de células transparentes para o dia da semana do dia 1; futuro transparente. Tooltip "D/jul — nível N".
@@ -48,10 +66,10 @@ Requer expor os dados dos comandos `ai stats opencode|claude` na API (eles já s
 - **Por modelo**: tabela `.table` [modelo em mono 12px | tokens | custo | barra 8px colorida por modelo: sonnet=acento, opus=`#a2503c`, haiku=`#5f7a52`, outros=neutral-500], largura % do maior custo. Nota justificada 12px sobre estimativa de preços/câmbio e teto de 4h por sessão.
 - Moeda US$/R$ conforme preferência (o usuário escolheu **R$** como default ao revisar — custo principal em R$, secundário em US$; câmbio ao vivo já existe em `cambio.rs`).
 
-### 6. Configuração (tela nova)
+### 7. Configuração (tela nova)
 Coluna única max 720px. Subtítulo referenciando `/etc/dev-cli/config.toml` e `DEV_CLI_*` (paths em mono). Campos (classes `.field`/`.input`/`.seg` do DS — ver `classical-tokens.css`): segmented "Origem da coleta" (docker local | SSH remoto); "Host SSH" (desabilitado quando docker local — no protótipo está sempre disabled, na implementação habilitar quando SSH); grid 2×2: Intervalo de coleta (s) 30, Janela de análise (min) 60, Retenção do banco (dias) 14, Porta da API 8787; "Diretório do portal" `/var/lib/dev-cli/portal`. Rodapé com hairline: botão primário (contorno acento) "Salvar alterações" + ghost "Restaurar padrão". Persistência: a decidir (o servidor hoje só lê TOML — pode começar somente-leitura).
 
-### 7. Landing (`Landing dev-cli.dc.html`)
+### 8. Landing (`Landing dev-cli.dc.html`)
 Página estática separada (pode ser um HTML à parte, fora do app React): nav do DS com CTA "Ver o portal"; hero centrado (kicker uppercase em acento, h1 serif 64px "Os seus logs e os seus custos de IA, num só binário.", parágrafo justificado, botões contorno); **plate** 16:8 com placeholder do screenshot do dashboard TUI (substituir por captura real); seção "Três frentes, um binário" — 3 colunas separadas por hairlines verticais (Logs ao vivo / Portal web / Custos de IA), texto justificado 14px; seção Instalação — 3 cards com `<pre>` mono 13px (brew tap+install, scoop bucket+install, cargo install --git); footer hairline "MIT © 2026 Jarede Silva".
 
 ## Interações e comportamento
@@ -63,16 +81,16 @@ Página estática separada (pode ser um HTML à parte, fora do app React): nav d
 - Erro de API: manter dados stale na tela + banner (comportamento atual)
 
 ## Estado
-Igual ao atual (`App.tsx`) + `tela: 'visao' | 'hist' | 'ia' | 'conf'`. Novos dados: histórico por hora e stats de IA (novos endpoints ou fetch condicional ao entrar na tela).
+Igual ao atual (`App.tsx`) + `tela: 'visao' | 'hist' | 'test' | 'ia' | 'conf'`. Novos dados: histórico por hora, suítes de teste + execuções, e stats de IA (novos endpoints ou fetch condicional ao entrar na tela).
 
 ## Dados de exemplo usados nos protótipos
 Containers reais do projeto: `prezzo` (vermelho: 231 err, 4 crit, p95 2.41s), `ecomm` (amarelo), `supply` (parado), `bapi`, `intranet` (verdes). Linhas de log no estilo Loguru/Oracle do Prezzo. Meses/valores de IA são plausíveis mas fictícios.
 
 ## Arquivos
-- `Portal dev-cli.dc.html` — protótipo interativo das 4 telas + drawer (abrir no browser; a lógica está no `<script>` do fim do arquivo, o markup no `<x-dc>`)
+- `Portal dev-cli.dc.html` — protótipo interativo das 5 telas + drawer + cadastro de suítes (abrir no browser; a lógica está no `<script>` do fim do arquivo, o markup no `<x-dc>`)
 - `Landing dev-cli.dc.html` — landing estática
 - `classical-tokens.css` — o stylesheet completo do design system (tokens + classes `.btn/.card/.table/.field/.nav/.tag/.plate`)
-- `screenshots/` — capturas de referência: 01 Visão geral, 02 drawer de drill-down, 03 Histórico, 04 IA · custos, 05 Configuração, 06 landing
+- `screenshots/` — capturas de referência: 01 Visão geral, 02 drawer de drill-down, 03 Histórico, 04 IA · custos, 05 Configuração, 06 landing, 07 Testes (pipelines expandidas com falhas), 08 Testes (formulário Nova suíte)
 
 ## Prompt sugerido para o Claude Code (Sonnet)
-> Leia design_handoff_portal_dev_cli/README.md e os dois .dc.html. Recrie o redesign no app React em web/src/, seguindo os padrões existentes (componentes em português, App.tsx dono do estado/polling, formato.ts, tipos.ts, CSS com variáveis em index.css — sem novas dependências). Comece pela troca de tema (tokens do classical-tokens.css) e pela tela Visão geral + drawer, mantendo os testes existentes passando; depois adicione as telas Histórico, IA · custos e Configuração (novos endpoints no crate servidor conforme o README). A landing é um HTML estático separado.
+> Leia design_handoff_portal_dev_cli/README.md e os dois .dc.html. Recrie o redesign no app React em web/src/, seguindo os padrões existentes (componentes em português, App.tsx dono do estado/polling, formato.ts, tipos.ts, CSS com variáveis em index.css — sem novas dependências). Comece pela troca de tema (tokens do classical-tokens.css) e pela tela Visão geral + drawer, mantendo os testes existentes passando; depois adicione as telas Histórico, Testes · e2e (runner sequencial de pipelines CLI + cadastro de suítes — ver seção 5), IA · custos e Configuração (novos endpoints no crate servidor conforme o README). A landing é um HTML estático separado.

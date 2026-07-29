@@ -6,8 +6,13 @@ import {
   buscarContainers,
   buscarCustosIa,
   buscarErros,
+  buscarExecucao,
   buscarHistorico,
   buscarLinhas,
+  buscarSuites,
+  cancelarExecucao,
+  criarSuite,
+  rodarSuite,
 } from './api'
 
 /// Uma Response de sucesso com corpo JSON (o objeto Response do fetch
@@ -153,5 +158,78 @@ describe('cliente da API', () => {
 
     expect(fetchFalso).toHaveBeenCalledWith('/api/config')
     expect(config.servidor.bind).toBe('127.0.0.1:8787')
+  })
+
+  it('buscarSuites chama /api/testes/suites com o cabeçalho anti-CSRF', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson([]))
+    vi.stubGlobal('fetch', fetchFalso)
+    await buscarSuites()
+    expect(fetchFalso).toHaveBeenCalledWith('/api/testes/suites', {
+      headers: { 'x-dev-cli-portal': '1' },
+    })
+  })
+
+  it('criarSuite faz POST com o JSON da suíte e o cabeçalho anti-CSRF', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(
+      respostaJson({ id: 'rt', nome: 'x', timeout_etapa_seg: 30, passos: [] }),
+    )
+    vi.stubGlobal('fetch', fetchFalso)
+    const suite = {
+      id: 'rt',
+      nome: 'x',
+      timeout_etapa_seg: 30,
+      passos: [{ tipo: 'exec' as const, cmd: 'echo oi' }],
+    }
+    await criarSuite(suite)
+    expect(fetchFalso).toHaveBeenCalledWith('/api/testes/suites', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-cli-portal': '1' },
+      body: JSON.stringify(suite),
+    })
+  })
+
+  it('rodarSuite faz POST com o cabeçalho anti-CSRF e devolve o id_execucao', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson({ id_execucao: 'exec-1' }))
+    vi.stubGlobal('fetch', fetchFalso)
+    const inicio = await rodarSuite('rt')
+    expect(fetchFalso).toHaveBeenCalledWith('/api/testes/suites/rt/rodar', {
+      method: 'POST',
+      headers: { 'x-dev-cli-portal': '1' },
+    })
+    expect(inicio.id_execucao).toBe('exec-1')
+  })
+
+  it('rodarSuite escapa o id do container', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson({ id_execucao: 'e' }))
+    vi.stubGlobal('fetch', fetchFalso)
+    await rodarSuite('a/b')
+    expect(fetchFalso).toHaveBeenCalledWith('/api/testes/suites/a%2Fb/rodar', expect.anything())
+  })
+
+  it('buscarExecucao chama o endpoint com o id_execucao e o cabeçalho anti-CSRF', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(
+      respostaJson({
+        id_execucao: 'exec-1',
+        suite_id: 'rt',
+        iniciada_em_unix: 1,
+        estados: [],
+        conclusao: 'rodando',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchFalso)
+    await buscarExecucao('exec-1')
+    expect(fetchFalso).toHaveBeenCalledWith('/api/testes/execucoes/exec-1', {
+      headers: { 'x-dev-cli-portal': '1' },
+    })
+  })
+
+  it('cancelarExecucao faz POST com o cabeçalho anti-CSRF e devolve void', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchFalso)
+    await cancelarExecucao('exec-1')
+    expect(fetchFalso).toHaveBeenCalledWith('/api/testes/execucoes/exec-1/cancelar', {
+      method: 'POST',
+      headers: { 'x-dev-cli-portal': '1' },
+    })
   })
 })

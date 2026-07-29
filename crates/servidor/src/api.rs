@@ -11,6 +11,8 @@
 // docs: https://doc.rust-lang.org/book/ch16-03-shared-state.html
 // docs: https://docs.rs/axum/latest/axum/#sharing-state-with-handlers
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, Query, State};
@@ -37,6 +39,17 @@ use nucleo::metricas::{ResumoContainer, Severidade, severidade};
 pub struct EstadoApi {
     pub db: Arc<Mutex<Connection>>,
     pub config: Arc<Config>,
+    /// Diretório onde as suítes de teste ficam persistidas (arquivos
+    /// `<id>.toml`). Configurável via `[servidor] testes_dir` no TOML
+    /// ou `DEV_CLI_SERVIDOR_TESTES_DIR`; default: `/etc/dev-cli/testes`.
+    pub testes_dir: PathBuf,
+    /// Execuções de testes em andamento (id_execucao -> Execucao).
+    /// VIVE AQUI no EstadoApi para que o main.rs monte UM router só
+    /// (sem precisar mergear dois Routers com estados diferentes).
+    /// `tokio::sync::Mutex` não é necessário — o lock é segurado só
+    /// durante o `HashMap::insert`/`get`, ambos instantâneos, e o
+    /// callback do runner não tem `.await` no meio.
+    pub execucoes: Arc<Mutex<HashMap<String, nucleo::testes::Execucao>>>,
 }
 
 /// Monta o `Router` com todas as rotas da API.
@@ -278,6 +291,8 @@ mod tests {
         EstadoApi {
             db: Arc::new(Mutex::new(conn)),
             config: Arc::new(Config::default()),
+            testes_dir: std::env::temp_dir(),
+            execucoes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -312,6 +327,8 @@ mod tests {
                 conn
             })),
             config: Arc::new(config),
+            testes_dir: std::env::temp_dir(),
+            execucoes: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let (status, json) = get_json(criar_rotas(estado), "/api/config").await;

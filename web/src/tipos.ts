@@ -138,6 +138,57 @@ export interface ConfigEfetiva {
   servidor: ConfigServidor
 }
 
+// ─── Testes · e2e ─────────────────────────────────────────────────────
+// Espelha `nucleo::testes` (Rust): mesmas chaves JSON, mesma semântica.
+// Ver `docs/design_handoff_portal_dev_cli/README.md` (seção 5).
+
+/** Tipo de uma etapa da pipeline. */
+export type TipoPasso = 'exec' | 'valida'
+
+/** Uma etapa da pipeline (um comando + tipo + saída esperada p/ validação). */
+export interface Passo {
+  tipo: TipoPasso
+  cmd: string
+  /** Só faz sentido para `valida`: o stdout (trimmed) tem que bater com isso. */
+  esperado?: string
+}
+
+/** Uma suíte de testes — o mesmo arquivo `<id>.toml` em /etc/dev-cli/testes. */
+export interface Suite {
+  id: string
+  nome: string
+  timeout_etapa_seg: number
+  passos: Passo[]
+}
+
+/** Estado de uma etapa dentro de uma execução. O discriminante é `status`. */
+export type EstadoPasso =
+  | { status: 'pendente' }
+  | { status: 'rodando' }
+  | { status: 'ok'; saida?: string }
+  | { status: 'falha_exec'; exit_code: number; stderr: string }
+  | { status: 'falha_valida'; esperado: string; obtido: string }
+  | { status: 'pulado' }
+
+/** Conclusão da pipeline como um todo. */
+export type ConclusaoExecucao = 'rodando' | 'sucesso' | 'falha'
+
+/** Uma execução — uma "rodada" de uma suíte. Tem um ID único (criado pelo
+ *  servidor) e o estado atual de cada passo, atualizado pelo runner. */
+export interface Execucao {
+  id_execucao: string
+  suite_id: string
+  iniciada_em_unix: number
+  estados: EstadoPasso[]
+  conclusao: ConclusaoExecucao
+}
+
+/** Resposta de `POST /api/testes/suites/{id}/rodar` — o cliente usa
+ *  `id_execucao` para fazer polling em `/api/testes/execucoes/{id}`. */
+export interface InicioExecucao {
+  id_execucao: string
+}
+
 export interface ConfigColeta {
   intervalo_seg: number
   janela_min: number

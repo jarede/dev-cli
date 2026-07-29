@@ -14,6 +14,7 @@ import type { ErroLogComDestaque } from './componentes/FeedErros'
 import { Historico } from './componentes/Historico'
 import { IaCustos } from './componentes/IaCustos'
 import { PainelContainer } from './componentes/PainelContainer'
+import { Testes } from './componentes/Testes'
 import { VisaoGeral } from './componentes/VisaoGeral'
 import { ROTAS } from './rotas'
 
@@ -123,6 +124,7 @@ function App() {
       />
     ),
     '/historico': <Historico />,
+    '/testes': <Testes />,
     '/ia': <IaCustos />,
     '/configuracao': <Configuracao />,
   }

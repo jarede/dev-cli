@@ -10,6 +10,7 @@
 
 mod api;
 mod ia;
+mod testes_api;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
@@ -144,13 +145,27 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // 5. API: CORS permissivo para o portal da Fase 3 poder chamar de outra
-    // origem (localhost:5173 do Vite, por exemplo). A API só expõe leitura,
-    // então liberar origens é aceitável; restringir vira config no futuro.
+    // 5. API: CORS permissivo SÓ nas rotas de leitura (`api::criar_rotas`),
+    // para o portal da Fase 3 poder chamar de outra origem (localhost:5173
+    // do Vite, por exemplo) — nelas, liberar origens é aceitável porque são
+    // só leitura. As rotas de testes (`testes_api`) ESCREVEM no disco e
+    // EXECUTAM comandos arbitrários (`sh -c`); aplicar CORS permissivo nelas
+    // também abriria um caminho de CSRF-para-RCE (qualquer página aberta no
+    // navegador do usuário poderia acionar `fetch` cross-origin contra elas
+    // e rodar comandos na máquina do dev-server). Por isso o
+    // `.layer(CorsLayer::permissive())` é aplicado ANTES do `.merge` — no
+    // axum, `Router::merge` preserva a pilha de middleware de cada lado, ou
+    // seja, as rotas de testes ficam SEM esse layer e caem no comportamento
+    // padrão (same-origin only): o navegador bloqueia o preflight de uma
+    // origem diferente por falta de `Access-Control-Allow-Origin`.
     // docs: https://docs.rs/tower-http/latest/tower_http/cors/index.html
+    // docs: https://docs.rs/axum/latest/axum/struct.Router.html#method.merge
+    let testes_dir = testes_api::diretorio_testes(Some(&config.servidor.testes_dir));
     let estado = api::EstadoApi {
         db: Arc::new(Mutex::new(conn)),
         config: Arc::new(config.clone()),
+        testes_dir,
+        execucoes: Arc::new(Mutex::new(std::collections::HashMap::new())),
     };
     // `TraceLayer`: middleware do tower-http que embrulha CADA request numa
     // span de tracing e, na resposta, registra método, caminho, status e
@@ -161,9 +176,13 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
     let camada_log_acesso = tower_http::trace::TraceLayer::new_for_http()
         .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
         .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::INFO));
-    let mut rotas = api::criar_rotas(estado)
-        .layer(tower_http::cors::CorsLayer::permissive())
-        .layer(camada_log_acesso);
+    let rotas_leitura =
+        api::criar_rotas(estado.clone()).layer(tower_http::cors::CorsLayer::permissive());
+    // O sub-router de testes compartilha o MESMO `EstadoApi` (o mesmo mutex
+    // de execuções, o mesmo `testes_dir`); `merge` junta os dois routers sem
+    // fricção de tipos, sem herdar o CORS permissivo de `rotas_leitura`.
+    let rotas_testes = testes_api::criar_rotas_testes().with_state(estado);
+    let mut rotas = rotas_leitura.merge(rotas_testes).layer(camada_log_acesso);
     if !config.servidor.portal_dir.is_empty() {
         // O portal é uma SPA com react-router: rotas como `/historico` só
         // existem no lado do cliente (o navegador troca a tela via JS, sem

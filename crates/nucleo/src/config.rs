@@ -114,6 +114,10 @@ pub struct Servidor {
     /// não serve estáticos (só a API) — o default em desenvolvimento,
     /// onde o Vite serve o portal com proxy.
     pub portal_dir: String,
+    /// Diretório onde o runner de testes e2e lê/grava as suítes
+    /// (arquivos `<id>.toml`). Vazio = `/etc/dev-cli/testes`. Pode
+    /// apontar para um path customizado em dev/testes.
+    pub testes_dir: String,
 }
 
 // Mesmo motivo do `Default` manual de `Coleta`: o default do projeto não é
@@ -124,6 +128,7 @@ impl Default for Servidor {
         Self {
             bind: "127.0.0.1:8787".to_string(),
             portal_dir: String::new(),
+            testes_dir: String::new(),
         }
     }
 }
@@ -185,6 +190,7 @@ impl Config {
                 }
                 "DEV_CLI_SERVIDOR_BIND" => self.servidor.bind = valor,
                 "DEV_CLI_SERVIDOR_PORTAL_DIR" => self.servidor.portal_dir = valor,
+                "DEV_CLI_SERVIDOR_TESTES_DIR" => self.servidor.testes_dir = valor,
                 _ => {}
             }
         }

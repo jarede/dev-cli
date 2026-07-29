@@ -2,5 +2,6 @@
 /dados
 .DS_Store
 /.worktrees
+/.env
 # Logs e snapshots transitórios do playwright-mcp (inspeção do portal no browser).
 /.playwright-mcp

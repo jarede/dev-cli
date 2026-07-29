@@ -16,3 +16,4 @@ pub mod db;
 pub mod executor;
 pub mod horas_sessao;
 pub mod metricas;
+pub mod testes;

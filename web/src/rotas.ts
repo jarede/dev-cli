@@ -19,6 +19,7 @@ export interface Rota {
 export const ROTAS: Rota[] = [
   { caminho: '/', rotulo: 'Visão geral', fim: true },
   { caminho: '/historico', rotulo: 'Histórico' },
+  { caminho: '/testes', rotulo: 'Testes' },
   { caminho: '/ia', rotulo: 'IA · custos' },
   { caminho: '/configuracao', rotulo: 'Configuração' },
 ]

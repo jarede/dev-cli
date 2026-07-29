@@ -1516,6 +1516,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tokio",
  "toml",
 ]
 

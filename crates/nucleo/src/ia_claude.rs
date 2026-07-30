@@ -1,3 +1,12 @@
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+
+use chrono::{DateTime, Local, NaiveDate, Utc};
+use serde::Deserialize;
+use walkdir::WalkDir;
+
+use crate::horas_sessao;
+
 // Custos de IA do Claude Code — parte pura, compartilhada pelo CLI
 // (`dev-cli ai stats claude`) e pelo dev-server (`/api/ia/custos`).
 // Mudou de morada: era `crates/cli/src/ai/precos.rs`; veio para o nucleo
@@ -190,6 +199,141 @@ pub fn distribuir_custo_proporcional(
     }
 }
 
+// ── UsoSessao ───────────────────────────────────────────────────────
+// Dados de uso de cada mensagem de assistente, extraídos dos JSONL.
+// Usado para agregar custo e tokens por modelo no servidor.
+pub struct UsoSessao {
+    pub modelo: String,
+    pub tokens_entrada: i64,
+    pub tokens_cache_escrita: i64,
+    pub tokens_cache_leitura: i64,
+    pub tokens_saida: i64,
+}
+
+// ── Structs de deserialização dos JSONL ────────────────────────────
+// Cada linha do JSONL do Claude tem esta estrutura. Só declaramos os
+// campos que nos interessam; extras são ignorados pelo serde.
+
+#[derive(Debug, Deserialize)]
+struct Uso {
+    input_tokens: i64,
+    output_tokens: i64,
+    #[serde(default)]
+    cache_creation_input_tokens: i64,
+    #[serde(default)]
+    cache_read_input_tokens: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Mensagem {
+    model: Option<String>,
+    usage: Option<Uso>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Registro {
+    timestamp: String,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    message: Option<Mensagem>,
+}
+
+// ── carregar_sessoes ──────────────────────────────────────────────
+// Lê todos os `.jsonl` sob `dir`, filtra pelo `mes` pedido (ex: "2026-06")
+// e devolve três estruturas:
+//
+//   (a) `Vec<Sessao>` — uma por sessão, com data e duração em horas
+//       (primeiro→último timestamp, clampado).
+//   (b) `Vec<UsoSessao>` — uma por mensagem de assistente, com modelo
+//       e tokens — usada para calcular custo e agregar por modelo.
+//   (c) `BTreeMap<NaiveDate, i64>` — tokens agregados por dia, usado
+//       para o heatmap.
+//
+// `dir` é um parâmetro (não lê env) — o CLI resolve `~/.claude/projects`,
+// o servidor usa `DEV_CLI_CLAUDE_PROJETOS_DIR`; a função pura só itera.
+// WalkDir itera recursivamente sem precisarmos escrever a recursão manual.
+// Arquivos ilegíveis ou linhas malformadas são puladas silenciosamente.
+pub fn carregar_sessoes(
+    dir: &Path,
+    mes: &str,
+) -> (
+    Vec<horas_sessao::Sessao>,
+    Vec<UsoSessao>,
+    BTreeMap<NaiveDate, i64>,
+) {
+    let mut horarios_por_sessao: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
+    let mut usos: Vec<UsoSessao> = Vec::new();
+    let mut tokens_por_dia: BTreeMap<NaiveDate, i64> = BTreeMap::new();
+
+    let arquivos = WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entrada| entrada.path().extension().is_some_and(|ext| ext == "jsonl"));
+
+    for entrada in arquivos {
+        let Ok(conteudo) = std::fs::read_to_string(entrada.path()) else {
+            continue;
+        };
+
+        for linha in conteudo.lines() {
+            let Ok(registro) = serde_json::from_str::<Registro>(linha) else {
+                continue;
+            };
+
+            if !mes.is_empty() && !registro.timestamp.starts_with(mes) {
+                continue;
+            }
+
+            let Some(session_id) = registro.session_id else {
+                continue;
+            };
+
+            let Ok(instante) = DateTime::parse_from_rfc3339(&registro.timestamp) else {
+                continue;
+            };
+
+            horarios_por_sessao
+                .entry(session_id)
+                .or_default()
+                .push(instante.with_timezone(&Utc));
+
+            if let Some(ref mensagem) = registro.message
+                && let Some(ref uso) = mensagem.usage
+            {
+                let total = uso.input_tokens
+                    + uso.output_tokens
+                    + uso.cache_creation_input_tokens
+                    + uso.cache_read_input_tokens;
+                let dia = instante.with_timezone(&Local).date_naive();
+                *tokens_por_dia.entry(dia).or_insert(0) += total;
+
+                usos.push(UsoSessao {
+                    modelo: mensagem
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| "desconhecido".to_string()),
+                    tokens_entrada: uso.input_tokens,
+                    tokens_cache_escrita: uso.cache_creation_input_tokens,
+                    tokens_cache_leitura: uso.cache_read_input_tokens,
+                    tokens_saida: uso.output_tokens,
+                });
+            }
+        }
+    }
+
+    let sessoes = horarios_por_sessao
+        .into_values()
+        .filter_map(|mut horarios| {
+            horarios.sort();
+            let duracao_horas = horas_sessao::duracao_sessao(&horarios)?;
+            let dia = horarios.first()?.with_timezone(&Local).date_naive();
+            Some(horas_sessao::Sessao { dia, duracao_horas })
+        })
+        .collect();
+
+    (sessoes, usos, tokens_por_dia)
+}
+
 // `#[cfg(test)]`: este módulo só entra na compilação quando rodamos
 // `cargo test` — no binário final ele nem existe. `use super::*` traz tudo
 // do módulo pai (funções, structs e constantes) para o escopo dos testes.
@@ -267,5 +411,31 @@ mod tests {
                 saida: 0.0,
             }
         );
+    }
+
+    #[test]
+    fn carregar_sessoes_le_jsonl_filtra_mes_e_agrega_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        // Duas mensagens de julho (mesma sessão) + uma de junho (fora do mês).
+        let jsonl = concat!(
+            r#"{"timestamp":"2026-07-10T10:00:00-03:00","sessionId":"s1","message":{"model":"claude-sonnet-5","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":1000}}}"#,
+            "\n",
+            r#"{"timestamp":"2026-07-10T10:30:00-03:00","sessionId":"s1","message":{"model":"claude-sonnet-5","usage":{"input_tokens":200,"output_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":2000}}}"#,
+            "\n",
+            r#"{"timestamp":"2026-06-01T09:00:00-03:00","sessionId":"s0","message":{"model":"claude-sonnet-5","usage":{"input_tokens":999,"output_tokens":9,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            "\n",
+            "linha invalida que o parser deve pular\n",
+        );
+        std::fs::create_dir(dir.path().join("projeto-a")).unwrap();
+        std::fs::write(dir.path().join("projeto-a/sessao.jsonl"), jsonl).unwrap();
+
+        let (sessoes, usos, tokens_por_dia) = carregar_sessoes(dir.path(), "2026-07");
+
+        assert_eq!(sessoes.len(), 1, "uma sessão em julho");
+        assert_eq!(usos.len(), 2, "duas mensagens de assistente em julho");
+        let dia = chrono::NaiveDate::from_ymd_opt(2026, 7, 10).unwrap();
+        // 100+50+10+1000 + 200+80+0+2000 = 3440 tokens no dia 10/07.
+        assert_eq!(tokens_por_dia.get(&dia), Some(&3440));
+        assert_eq!(usos[0].modelo, "claude-sonnet-5");
     }
 }

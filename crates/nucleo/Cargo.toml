@@ -13,9 +13,11 @@ dotenvy.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "time", "rt", "macros", "sync"] }
 toml.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true

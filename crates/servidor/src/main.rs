@@ -185,15 +185,10 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
     let rotas_testes = testes_api::criar_rotas_testes().with_state(estado);
     let mut rotas = rotas_leitura.merge(rotas_testes).layer(camada_log_acesso);
     if !config.servidor.portal_dir.is_empty() {
-        // O portal é uma SPA com react-router: rotas como `/historico` só
-        // existem no lado do cliente (o navegador troca a tela via JS, sem
-        // pedir nada novo ao servidor). Um `ServeDir` puro devolve 404 pra
-        // qualquer caminho que não bata com um arquivo real do build — ao
-        // recarregar `/historico` ou abri-lo direto, o navegador PEDE
-        // `/historico` ao servidor, que não tem esse arquivo. `not_found_service`
-        // troca esse 404 pelo `index.html`: o react-router então assume o
-        // roteamento no cliente a partir daí, como no dev (onde o Vite já
-        // faz esse fallback sozinho).
+        // Override explícito (TOML/env/flag): serve do diretório indicado —
+        // fluxo de desenvolvimento ou deploy com portal separado. Mantém o
+        // fallback SPA do react-router via not_found_service (ver comentário
+        // original sobre /historico e recarga de página).
         // docs: https://docs.rs/tower-http/latest/tower_http/services/struct.ServeDir.html#method.not_found_service
         // docs: https://docs.rs/tower-http/latest/tower_http/services/struct.ServeFile.html
         let index_html = PathBuf::from(&config.servidor.portal_dir).join("index.html");
@@ -201,7 +196,13 @@ async fn executar() -> Result<(), Box<dyn std::error::Error>> {
             tower_http::services::ServeDir::new(&config.servidor.portal_dir)
                 .not_found_service(tower_http::services::ServeFile::new(index_html)),
         );
-        println!("portal estático: {}", config.servidor.portal_dir);
+        println!("portal: dir {}", config.servidor.portal_dir);
+    } else {
+        // Sem override: o portal embutido no binário (ou a página
+        // explicativa, num build sem web/dist) — é o que faz `dev-server`
+        // subir frontend + backend com um único comando pós-install.
+        rotas = rotas.merge(portal::rotas_portal());
+        println!("portal: {}", portal::descricao());
     }
 
     let listener = tokio::net::TcpListener::bind(&config.servidor.bind).await?;

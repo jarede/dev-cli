@@ -385,4 +385,17 @@ taxa_erro_pct = 1.0
         )]);
         assert_eq!(c.servidor.portal_dir, "/tmp/dist");
     }
+
+    #[test]
+    fn caminho_db_default_e_portavel_e_absoluto() {
+        // Sem `db` configurado, o caminho vem de dirs::data_local_dir() —
+        // Linux: ~/.local/share, macOS: ~/Library/Application Support,
+        // Windows: %LOCALAPPDATA% — sempre terminando em dev-cli/logs.db.
+        let config = Config::default();
+        let caminho = config.caminho_db();
+        assert!(caminho.ends_with("dev-cli/logs.db") || caminho.ends_with("dev-cli\\logs.db"));
+        // Num ambiente com home resolvível (CI e dev), o caminho é absoluto —
+        // o "." de fallback só aparece em ambientes sem diretório de dados.
+        assert!(caminho.is_absolute() || caminho.starts_with("."));
+    }
 }

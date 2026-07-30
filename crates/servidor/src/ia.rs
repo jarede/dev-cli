@@ -224,7 +224,8 @@ fn montar_resposta_claude(mes: &str) -> CustosIa {
         };
     }
     let heatmap = montar_heatmap(&agreg.tokens_por_dia, mes);
-    let (_disp, horas_mes, media_dia_ativo, por_semana) = calcular_horas_claude(mes);
+    let (_disp, horas_mes, media_dia_ativo, por_semana) =
+        calcular_horas_das_sessoes(&agreg.sessoes);
     CustosIa {
         mes: mes.to_string(),
         disponivel: true,
@@ -247,99 +248,83 @@ fn montar_resposta_claude(mes: &str) -> CustosIa {
 /// fontes (OpenCode + Claude), somando tokens, custo, tokens_por_dia e
 /// concatenando modelos. A disponibilidade é true se UMA das fontes tiver
 /// dados.
+///
+/// Claude é sempre "carregável" (nunca falha, na pior das hipóteses vem
+/// vazio) — só o OpenCode é de fato opcional (banco pode não existir). Por
+/// isso o `match` de antes, sobre `(Option<Opencode>, Option<Claude>)`,
+/// tinha dois braços inalcançáveis (`(Some(oc), _)` cobria tudo que não
+/// fosse `(Some(oc), Some(cl))`, e `(None, None)` nunca acontecia porque o
+/// segundo item do par nunca era `None`). Aqui o `match`/`if` decide só
+/// sobre a disponibilidade do OpenCode: (a) OpenCode ok → soma com Claude
+/// (mesmo se Claude vier vazio, somar zero é inofensivo); (b) OpenCode
+/// ausente e Claude vazio → resposta indisponível; (c) OpenCode ausente e
+/// Claude com dados → só Claude.
 fn montar_resposta_ambos(mes: &str) -> CustosIa {
     // Carrega OpenCode (pode falhar — tratamos como vazio).
     let opencode = abrir_opencode().and_then(|conn| agregar_opencode(&conn, mes).ok());
 
-    // Carrega Claude (sempre "ok", pode vir vazio).
-    let claude = Some(agregar_claude(mes));
+    // Carrega Claude uma única vez: o agregado já traz as `sessoes` lidas
+    // por `carregar_sessoes`, reaproveitadas mais abaixo por
+    // `calcular_horas_das_sessoes` em vez de reler os JSONL (achado 5).
+    let claude = agregar_claude(mes);
 
-    let (disponivel, tokens, custo_usd, cache_pct, heatmap, modelos) = match (opencode, claude) {
-        (Some(oc), Some(cl)) => {
-            let tokens = oc.tokens + cl.tokens;
-            let custo_usd = oc.custo_usd + cl.custo_usd;
-            let cache_total = (oc.cache_pct / 100.0 * oc.tokens as f64
-                + cl.cache_pct / 100.0 * cl.tokens as f64) as i64;
-            let tokens_total = tokens;
-            let cache_pct = if tokens_total > 0 {
-                cache_total as f64 * 100.0 / tokens_total as f64
-            } else {
-                0.0
-            };
-            // Mescla tokens_por_dia.
-            let mut tok_dia = oc.tokens_por_dia;
-            for (dia, t) in &cl.tokens_por_dia {
-                *tok_dia.entry(*dia).or_insert(0) += t;
-            }
-            let mut mods = oc.modelos;
-            mods.extend(cl.modelos);
-            mods.sort_by_key(|b| std::cmp::Reverse(b.tokens));
-            let heatmap = montar_heatmap(&tok_dia, mes);
-            (true, tokens, custo_usd, cache_pct, heatmap, mods)
+    let (disponivel, tokens, custo_usd, cache_pct, heatmap, modelos) = if let Some(oc) = opencode {
+        // (a) OpenCode ok: soma com Claude.
+        let tokens = oc.tokens + claude.tokens;
+        let custo_usd = oc.custo_usd + claude.custo_usd;
+        // Cache % de "ambos" a partir dos totais CRUS de cada fonte (não
+        // reconstruído de `pct/100 × tokens as i64`, que truncava e perdia
+        // precisão no roundtrip — achado 4).
+        let cache_total = oc.tokens_cache + claude.tokens_cache;
+        let cache_pct = if tokens > 0 {
+            cache_total as f64 * 100.0 / tokens as f64
+        } else {
+            0.0
+        };
+        // Mescla tokens_por_dia.
+        let mut tok_dia = oc.tokens_por_dia;
+        for (dia, t) in &claude.tokens_por_dia {
+            *tok_dia.entry(*dia).or_insert(0) += t;
         }
-        (Some(oc), _) => {
-            let heatmap = montar_heatmap(&oc.tokens_por_dia, mes);
-            (
-                true,
-                oc.tokens,
-                oc.custo_usd,
-                oc.cache_pct,
-                heatmap,
-                oc.modelos,
-            )
-        }
-        (None, Some(cl)) => {
-            if cl.tokens == 0 && cl.modelos.is_empty() {
-                let heatmap = montar_heatmap(&cl.tokens_por_dia, mes);
-                return CustosIa {
-                    mes: mes.to_string(),
-                    disponivel: false,
-                    tokens: 0,
-                    custo_usd: 0.0,
-                    cache_pct: 0.0,
-                    streak_dias: 0,
-                    melhor_streak_dias: 0,
-                    heatmap,
-                    offset_semana_dia1: offset_semana_dia1(mes),
-                    modelos: Vec::new(),
-                    claude_disponivel: false,
-                    claude_horas_mes: 0.0,
-                    claude_media_horas_dia_ativo: 0.0,
-                    claude_horas_por_semana: Vec::new(),
-                };
-            }
-            let heatmap = montar_heatmap(&cl.tokens_por_dia, mes);
-            (
-                true,
-                cl.tokens,
-                cl.custo_usd,
-                cl.cache_pct,
-                heatmap,
-                cl.modelos,
-            )
-        }
-        (None, None) => {
-            let heatmap = montar_heatmap(&BTreeMap::new(), mes);
-            return CustosIa {
-                mes: mes.to_string(),
-                disponivel: false,
-                tokens: 0,
-                custo_usd: 0.0,
-                cache_pct: 0.0,
-                streak_dias: 0,
-                melhor_streak_dias: 0,
-                heatmap,
-                offset_semana_dia1: offset_semana_dia1(mes),
-                modelos: Vec::new(),
-                claude_disponivel: false,
-                claude_horas_mes: 0.0,
-                claude_media_horas_dia_ativo: 0.0,
-                claude_horas_por_semana: Vec::new(),
-            };
-        }
+        let mut mods = oc.modelos;
+        mods.extend(claude.modelos);
+        mods.sort_by_key(|b| std::cmp::Reverse(b.tokens));
+        let heatmap = montar_heatmap(&tok_dia, mes);
+        (true, tokens, custo_usd, cache_pct, heatmap, mods)
+    } else if claude.tokens == 0 && claude.modelos.is_empty() {
+        // (b) OpenCode ausente e Claude vazio: nenhuma fonte tem dados.
+        let heatmap = montar_heatmap(&claude.tokens_por_dia, mes);
+        return CustosIa {
+            mes: mes.to_string(),
+            disponivel: false,
+            tokens: 0,
+            custo_usd: 0.0,
+            cache_pct: 0.0,
+            streak_dias: 0,
+            melhor_streak_dias: 0,
+            heatmap,
+            offset_semana_dia1: offset_semana_dia1(mes),
+            modelos: Vec::new(),
+            claude_disponivel: false,
+            claude_horas_mes: 0.0,
+            claude_media_horas_dia_ativo: 0.0,
+            claude_horas_por_semana: Vec::new(),
+        };
+    } else {
+        // (c) OpenCode ausente e Claude com dados: só Claude.
+        let heatmap = montar_heatmap(&claude.tokens_por_dia, mes);
+        (
+            true,
+            claude.tokens,
+            claude.custo_usd,
+            claude.cache_pct,
+            heatmap,
+            claude.modelos,
+        )
     };
 
-    let (_disp, horas_mes, media_dia_ativo, por_semana) = calcular_horas_claude(mes);
+    let (_disp, horas_mes, media_dia_ativo, por_semana) =
+        calcular_horas_das_sessoes(&claude.sessoes);
     let claude_tem = !por_semana.is_empty() || horas_mes > 0.0;
 
     CustosIa {
@@ -401,18 +386,30 @@ struct AgregadoOpencode {
     tokens: i64,
     custo_usd: f64,
     cache_pct: f64,
+    /// Total cru de tokens de cache (read+write) no mês — cru, não
+    /// percentual, para o modo `ambos` poder somar os crus das duas fontes
+    /// antes de calcular a % final (evita o roundtrip com perda de
+    /// reconstruir `pct/100 × tokens` truncado em `i64`).
+    tokens_cache: i64,
     tokens_por_dia: BTreeMap<NaiveDate, i64>,
     modelos: Vec<ModeloCusto>,
 }
 
 /// Agregado do Claude Code: mesma estrutura, mesma ideia — o caller
-/// decide se usa isolado ou mescla com o OpenCode.
+/// decide se usa isolado ou mescla com o OpenCode. Também carrega as
+/// `sessoes` já lidas por `carregar_sessoes` (achado 5 da revisão): os
+/// `montar_resposta_*` calculavam as horas trabalhadas relendo os JSONL do
+/// zero em `calcular_horas_claude`, quando as mesmas sessões já tinham sido
+/// lidas aqui — `calcular_horas_das_sessoes` reaproveita o que já está em
+/// memória.
 struct AgregadoClaude {
     tokens: i64,
     custo_usd: f64,
     cache_pct: f64,
+    tokens_cache: i64,
     tokens_por_dia: BTreeMap<NaiveDate, i64>,
     modelos: Vec<ModeloCusto>,
+    sessoes: Vec<horas_sessao::Sessao>,
 }
 
 /// Carrega os agregados do mês a partir do banco já aberto. Mesma
@@ -520,6 +517,7 @@ fn agregar_opencode(conn: &Connection, mes: &str) -> rusqlite::Result<AgregadoOp
         tokens: tokens_total,
         custo_usd,
         cache_pct,
+        tokens_cache: cache_total,
         tokens_por_dia,
         modelos,
     })
@@ -537,14 +535,19 @@ fn agregar_claude(mes: &str) -> AgregadoClaude {
             tokens: 0,
             custo_usd: 0.0,
             cache_pct: 0.0,
+            tokens_cache: 0,
             tokens_por_dia: BTreeMap::new(),
             modelos: Vec::new(),
+            sessoes: Vec::new(),
         };
     }
 
     // carregar_sessoes devolve uma tupla (sessoes, usos, tokens_por_dia),
     // não Result — erros de I/O são silenciosos (pula linha malformada).
-    let (_sessoes, usos, tokens_por_dia) = ia_claude::carregar_sessoes(&dir, mes);
+    // `sessoes` é reaproveitada por `calcular_horas_das_sessoes` no caller
+    // (`montar_resposta_claude`/`montar_resposta_ambos`) em vez de cada um
+    // reler os JSONL do zero.
+    let (sessoes, usos, tokens_por_dia) = ia_claude::carregar_sessoes(&dir, mes);
 
     // Agrupa usos por modelo para calcular custo por modelo.
     let mut por_modelo: HashMap<String, (i64, i64, i64, i64)> = HashMap::new();
@@ -599,8 +602,10 @@ fn agregar_claude(mes: &str) -> AgregadoClaude {
         tokens: tokens_total,
         custo_usd,
         cache_pct,
+        tokens_cache: cache_tokens,
         tokens_por_dia,
         modelos,
+        sessoes,
     }
 }
 
@@ -667,24 +672,32 @@ fn offset_semana_dia1(mes: &str) -> u32 {
         .unwrap_or(0)
 }
 
-/// Agrega as sessões do Claude Code do mês em: disponibilidade, total de
-/// horas, média por dia ativo e horas por semana. `disponivel = false`
+/// Agrega sessões do Claude Code JÁ CARREGADAS em: disponibilidade, total
+/// de horas, média por dia ativo e horas por semana. `disponivel = false`
 /// quando não há NENHUMA sessão no mês — a UI mostra um estado vazio
 /// honesto em vez de "—" fingindo que o dado só ainda não carregou.
-fn calcular_horas_claude(mes: &str) -> (bool, f64, f64, Vec<SemanaHoras>) {
-    let (sessoes, _usos, _tokens_por_dia) =
-        nucleo::ia_claude::carregar_sessoes(&diretorio_projetos_claude(), mes);
+///
+/// Recebe `sessoes` em vez de `mes` de propósito: antes esta função se
+/// chamava `calcular_horas_claude(mes)` e fazia seu PRÓPRIO
+/// `carregar_sessoes` — a mesma varredura de `~/.claude/projects` que
+/// `agregar_claude` já tinha acabado de fazer. Cada resposta (`fonte=claude`
+/// ou `fonte=ambos`) lia os transcritos JSONL duas vezes por request (achado
+/// 5 da revisão). Os `montar_resposta_*` agora passam `agreg.sessoes`
+/// (vindas de `agregar_claude`, que já rodou `carregar_sessoes` uma vez).
+fn calcular_horas_das_sessoes(
+    sessoes: &[horas_sessao::Sessao],
+) -> (bool, f64, f64, Vec<SemanaHoras>) {
     if sessoes.is_empty() {
         return (false, 0.0, 0.0, Vec::new());
     }
 
     let horas_mes: f64 = sessoes.iter().map(|s| s.duracao_horas).sum();
-    let por_dia: BTreeMap<NaiveDate, (f64, u32)> = horas_sessao::agregar_por_dia(&sessoes);
+    let por_dia: BTreeMap<NaiveDate, (f64, u32)> = horas_sessao::agregar_por_dia(sessoes);
     // `por_dia.len()` nunca é 0 aqui: `sessoes` não está vazio, então pelo
     // menos um dia tem entrada no mapa.
     let media_por_dia_ativo = horas_mes / por_dia.len() as f64;
 
-    let semanas = horas_sessao::agregar_por_semana(&sessoes)
+    let semanas = horas_sessao::agregar_por_semana(sessoes)
         .into_iter()
         .map(|(segunda, (horas, _sessoes, _dias))| SemanaHoras {
             rotulo: segunda.format("%d/%m").to_string(),

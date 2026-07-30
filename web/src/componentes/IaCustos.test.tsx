@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { IaCustos } from './IaCustos'
 import type { CustosIa } from '../tipos'
+import { mesAnterior, mesAtual } from '../formato'
 
 vi.mock('../api', () => ({
   buscarCustosIa: vi.fn(),
@@ -26,7 +27,7 @@ function custos(parcial: Partial<CustosIa>): CustosIa {
     ],
     offset_semana_dia1: 2,
     modelos: [
-      { modelo: 'claude-sonnet-4', provedor: 'anthropic', sessoes: 10, tokens: 1000, custo_usd: 100 },
+      { modelo: 'claude-sonnet-4', provedor: 'anthropic', sessoes: 10, tokens: 1000, custo_usd: 100, tokens_cache: 500, tokens_sem_cache: 500 },
     ],
     claude_disponivel: true,
     claude_horas_mes: 61.33,
@@ -62,9 +63,6 @@ describe('IaCustos', () => {
 
     await screen.findByText('claude-sonnet-4')
     expect(screen.getByText('—')).toBeInTheDocument()
-    // O texto "sem sessões do Claude Code" aparece duas vezes (o KPI e a
-    // seção "Horas por semana") — `getAllByText` em vez de `getByText`.
-    expect(screen.getAllByText(/sem sessões do Claude Code/).length).toBeGreaterThan(0)
   })
 
   it('toggle de moeda troca o texto do botão e o valor principal', async () => {
@@ -73,28 +71,66 @@ describe('IaCustos', () => {
     render(<IaCustos />)
 
     await screen.findByText('claude-sonnet-4')
-    // Default é R$ (186.4 * 5.42 = 1010.288 -> "R$ 1.010,29").
     expect(screen.getByText('R$ 1.010,29')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('mostrar em US$'))
     expect(screen.getByText('US$ 186.40')).toBeInTheDocument()
   })
 
-  it('banco do OpenCode indisponível mostra o estado vazio', async () => {
+  it('sem dados em nenhuma fonte mostra o estado vazio', async () => {
     custosFalso.mockResolvedValue(custos({ disponivel: false }))
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
-    expect(await screen.findByText(/dados não disponíveis/)).toBeInTheDocument()
+    expect(await screen.findByText(/nenhuma das fontes tem dados neste mês/i)).toBeInTheDocument()
   })
 
   it('falha na busca mostra o banner de erro', async () => {
-    custosFalso.mockImplementation(async () => {
-      throw new Error('API respondeu 500')
-    })
+    custosFalso.mockRejectedValue(new Error('API respondeu 500'))
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
     expect(await screen.findByText(/API respondeu 500/)).toBeInTheDocument()
+  })
+
+  it('seta ‹ busca o mês anterior e › fica desabilitada no mês atual', async () => {
+    custosFalso.mockResolvedValue(custos({}))
+    cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
+    render(<IaCustos />)
+
+    await screen.findByText('claude-sonnet-4')
+    const voltar = screen.getByRole('button', { name: /mês anterior/i })
+    const avancar = screen.getByRole('button', { name: /mês seguinte/i })
+    expect(avancar).toBeDisabled()
+    fireEvent.click(voltar)
+    await waitFor(() => {
+      const chamadas = custosFalso.mock.calls.map((c) => String(c))
+      expect(chamadas.some((u) => u.includes(mesAnterior(mesAtual())))).toBe(true)
+    })
+  })
+
+  it('segmented de fonte refaz o fetch com o valor escolhido', async () => {
+    custosFalso.mockResolvedValue(custos({}))
+    cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
+    render(<IaCustos />)
+
+    fireEvent.click(await screen.findByLabelText('OpenCode'))
+    await waitFor(() => {
+      // Segundo argumento das chamadas: fonte passada para buscarCustosIa.
+      const fontes = custosFalso.mock.calls.map((c) => c[1])
+      expect(fontes).toContain('opencode')
+    })
+  })
+
+  it('subtítulo reflete a fonte "claude"', async () => {
+    custosFalso.mockResolvedValue(custos({}))
+    cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
+    render(<IaCustos />)
+
+    await screen.findByText('claude-sonnet-4')
+    fireEvent.click(screen.getByLabelText('Claude'))
+    await waitFor(() => {
+      expect(screen.getByText('Claude · câmbio R$ 5,42')).toBeInTheDocument()
+    })
   })
 })

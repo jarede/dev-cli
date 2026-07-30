@@ -145,7 +145,11 @@
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
 
   /* A cor do "novo" no feed (a animação pulseNovo vai de 18% → 0%). */
-  --novo-bg: color-mix(in srgb, #a2503c 18%, transparent);
+  --novo-bg: color-mix(in srgb, var(--sev-vermelho) 18%, transparent);
+
+  /* Tokens extraídos de hexes soltos na implementação. */
+  --erro-texto: #7c3a2e;
+  --backdrop: color-mix(in srgb, #201f1d 35%, transparent);
 }
 
 * { box-sizing: border-box; }
@@ -255,11 +259,11 @@ hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--spa
   max-width: 1180px;
   margin: 16px auto 0;
   padding: 10px 16px;
-  border: 1px solid #a2503c;
+  border: 1px solid var(--sev-vermelho);
   border-radius: var(--radius-md);
-  color: #7c3a2e;
+  color: var(--erro-texto);
   font-size: 13px;
-  background: color-mix(in srgb, #a2503c 7%, var(--color-bg));
+  background: color-mix(in srgb, var(--sev-vermelho) 7%, var(--color-bg));
 }
 
 /* ─── Shell da página ──────────────────────────────────────────────
@@ -425,7 +429,7 @@ hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--spa
    translateX(100%) → translateX(0) que o componente antigo. */
 .drawer-backdrop {
   position: fixed; inset: 0;
-  background: color-mix(in srgb, #201f1d 35%, transparent);
+  background: var(--backdrop);
   z-index: 19;
 }
 .drawer {
@@ -555,6 +559,8 @@ hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--spa
 }
 
 /* ─── IA · custos ──────────────────────────────────────────────── */
+.seletor-mes { display: inline-flex; align-items: center; gap: 6px; font-feature-settings: 'tnum'; }
+.seletor-mes-rotulo { white-space: nowrap; }
 .kpis {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
   border: 1px solid var(--color-divider);
@@ -742,7 +748,7 @@ hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--spa
   background: color-mix(in srgb, var(--sev-vermelho) 5%, transparent);
 }
 .testes-falha-cabecalho {
-  color: #7c3a2e;
+  color: var(--erro-texto);
   margin-bottom: 6px;
 }
 .testes-falha-grid {
@@ -873,4 +879,63 @@ hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--spa
   gap: 10px;
   border-top: 1px solid var(--color-divider);
   padding-top: 18px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODO ESCURO — ativado por `data-theme="dark"` no <html>.
+   Apenas cores e sombras mudam; tipografia, espaçamento e raios são os mesmos.
+   Os ramps invertem de sentido: --color-neutral-100 é o mais ESCURO
+   (quase-fundo) e --color-neutral-900 o mais CLARO (quase-texto), para que
+   usos como .kicker (neutral-600), trilha de barra (neutral-200) e texto
+   pequeno em accent-700 mantenham o contraste certo sem tocar em componentes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root[data-theme="dark"] {
+  --color-bg: #171614;
+  --color-surface: #201f1d;
+  --color-text: #e8e4de;
+  --color-divider: color-mix(in srgb, #e8e4de 14%, transparent);
+  --color-accent: #b68235;
+
+  /* Ramp neutro invertido (100 = escuro, 900 = claro). */
+  --color-neutral-100: #2d2b2b;
+  --color-neutral-200: #444141;
+  --color-neutral-300: #605d5d;
+  --color-neutral-400: #7d7979;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #bab6b6;
+  --color-neutral-700: #d7d3d3;
+  --color-neutral-800: #eae7e7;
+  --color-neutral-900: #f8f4f4;
+
+  /* Ramp do accent invertido (100 = escuro, 900 = claro). */
+  --color-accent-100: #3a270d;
+  --color-accent-200: #5a3b0a;
+  --color-accent-300: #7d5411;
+  --color-accent-400: #a06f24;
+  --color-accent-500: #c28d41;
+  --color-accent-600: #e1ad66;
+  --color-accent-700: #facb8d;
+  --color-accent-800: #ffe3bf;
+  --color-accent-900: #fff3e4;
+
+  /* Severidades clareadas para contraste em fundo escuro. */
+  --sev-verde: #82a071;
+  --sev-vermelho: #c96f56;
+  --sev-amarelo: var(--color-accent);
+  --sev-parado: var(--color-neutral-400);
+
+  /* Sombras mais profundas (opacidades maiores) — em fundo escuro a sombra
+     clara desaparece. */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #000 24%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #000 28%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #000 38%, transparent);
+
+  /* Novo recalibrado sobre o vermelho escuro (~25%). */
+  --novo-bg: color-mix(in srgb, var(--sev-vermelho) 25%, transparent);
+
+  /* Texto de erro clareado. */
+  --erro-texto: #d9a08c;
+
+  /* Backdrop mais denso (fundo já é escuro, precisa escurecer mais). */
+  --backdrop: color-mix(in srgb, #000 50%, transparent);
 }

@@ -1,27 +1,38 @@
-// Tela IA · custos: KPIs (custo/tokens/horas/streak), heatmap do mês,
-// horas por semana e ranking por modelo. Os dados vêm de /api/ia/custos
-// (carregado sob demanda) + /api/ia/cambio (taxa USD->BRL, buscada ao vivo
-// pelo servidor). Moeda padrão é R$ (escolha do usuário ao revisar o
-// protótipo) — o toggle no header troca o "principal" e o "secundário".
-
 import { useEffect, useState } from 'react'
 import { buscarCambio, buscarCustosIa } from '../api'
-import type { Cambio, CustosIa } from '../tipos'
-import { formatarHorasMinutos, formatarMoeda, formatarNumeroCompacto } from '../formato'
-import type { Moeda } from '../formato'
+import type { Cambio, CustosIa, FonteIa } from '../tipos'
+import {
+  formatarHorasMinutos,
+  formatarMoeda,
+  formatarNumeroCompacto,
+  mesAnterior,
+  mesAtual,
+  mesPorExtenso,
+  mesSeguinte,
+} from '../formato'
 import { intensidadeParaCor } from '../formato'
+import type { Moeda } from '../formato'
 
 const ROTULOS_SEMANA = ['seg', '', 'qua', '', 'sex', '', 'dom']
+
+const OPCOES_FONTE: FonteIa[] = ['opencode', 'claude', 'ambos']
+const ROTULO_FONTE: Record<FonteIa, string> = {
+  opencode: 'OpenCode',
+  claude: 'Claude',
+  ambos: 'Ambos',
+}
 
 export function IaCustos() {
   const [dados, setDados] = useState<CustosIa | null>(null)
   const [cambio, setCambio] = useState<Cambio | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [moeda, setMoeda] = useState<Moeda>('R$')
+  const [mes, setMes] = useState(mesAtual)
+  const [fonte, setFonte] = useState<FonteIa>('ambos')
 
   useEffect(() => {
     let ativo = true
-    Promise.all([buscarCustosIa(), buscarCambio()])
+    Promise.all([buscarCustosIa(mes, fonte), buscarCambio()])
       .then(([c, cb]) => {
         if (ativo) {
           setDados(c)
@@ -35,22 +46,46 @@ export function IaCustos() {
     return () => {
       ativo = false
     }
-  }, [])
+  }, [mes, fonte])
 
-  // Tudo zerado / banco ausente: mostra estado vazio, sem KPIs zerados
-  // (que dariam a impressão de bug).
+  // Estado vazio conforme a fonte (spec §3).
   if (dados !== null && !dados.disponivel) {
+    const mensagem =
+      fonte === 'opencode'
+        ? 'O banco do OpenCode não foi encontrado em <code>~/.local/share/opencode/opencode.db</code>. Rode o OpenCode pelo menos uma vez para popular os dados, ou aponte a env <code>DEV_CLI_OPENCODE_DB</code> para o caminho correto.'
+        : fonte === 'claude'
+          ? 'Nenhuma sessão do Claude Code encontrada no mês. Os transcritos ficam em <code>~/.claude/projects</code>.'
+          : 'Nenhuma das fontes tem dados neste mês.'
     return (
       <main className="shell" data-screen-label="IA e custos">
         <header className="tela-header">
           <h1>IA · custos</h1>
-          <span className="subtitulo">dados não disponíveis</span>
+          <SeletorMes mes={mes} setMes={setMes} />
+          <FonteSegmented fonte={fonte} setFonte={setFonte} />
+          <span className="atualizado" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setMoeda(moeda === 'R$' ? 'US$' : 'R$')}
+              title="Trocar moeda principal"
+            >
+              {moeda === 'R$' ? 'mostrar em US$' : 'mostrar em R$'}
+            </button>
+          </span>
         </header>
-        <p className="vazio">
-          O banco do OpenCode não foi encontrado em <code>~/.local/share/opencode/opencode.db</code>.
-          Rode o OpenCode pelo menos uma vez para popular os dados, ou aponte a env
-          <code> DEV_CLI_OPENCODE_DB</code> para o caminho correto.
-        </p>
+        <p className="vazio" dangerouslySetInnerHTML={{ __html: mensagem }} />
+      </main>
+    )
+  }
+
+  if (erro !== null && dados === null) {
+    return (
+      <main className="shell" data-screen-label="IA e custos">
+        <header className="tela-header">
+          <h1>IA · custos</h1>
+          <span className="subtitulo">carregando…</span>
+        </header>
+        <div className="banner-api-fora">⚠ {erro}</div>
       </main>
     )
   }
@@ -67,12 +102,24 @@ export function IaCustos() {
     )
   }
 
+  // Subtítulo conforme a fonte e dados disponíveis.
+  const subtituloFonte =
+    fonte === 'ambos'
+      ? dados.claude_disponivel
+        ? 'OpenCode + Claude'
+        : 'OpenCode'
+      : ROTULO_FONTE[fonte]
+
+  const mostrarClaude = fonte !== 'opencode' && dados.claude_disponivel
+
   return (
     <main className="shell" data-screen-label="IA e custos">
       <header className="tela-header">
         <h1>IA · custos</h1>
+        <SeletorMes mes={mes} setMes={setMes} />
+        <FonteSegmented fonte={fonte} setFonte={setFonte} />
         <span className="subtitulo">
-          {dados.mes} · OpenCode · câmbio {formatarMoeda(1, cambio.usd_brl, 'R$')}
+          {subtituloFonte} · câmbio {formatarMoeda(1, cambio.usd_brl, 'R$')}
         </span>
         <span className="atualizado" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
@@ -86,9 +133,6 @@ export function IaCustos() {
         </span>
       </header>
 
-      {/* Faixa de KPIs: 4 células com divisórias internas por hairline.
-          O `border-right` de cada KPI vira o divisor; o último não tem
-          (a borda externa da faixa toda é do container). */}
       <div className="kpis">
         <Kpi
           rotulo="Custo no mês"
@@ -104,7 +148,7 @@ export function IaCustos() {
           principal={formatarNumeroCompacto(dados.tokens)}
           secundario={dados.cache_pct > 0 ? `${Math.round(dados.cache_pct)}% em cache` : 'sem cache'}
         />
-        {dados.claude_disponivel ? (
+        {mostrarClaude ? (
           <Kpi
             rotulo="Horas com Claude"
             principal={formatarHorasMinutos(dados.claude_horas_mes * 60)}
@@ -114,7 +158,7 @@ export function IaCustos() {
           <Kpi
             rotulo="Horas com Claude"
             principal="—"
-            secundario="sem sessões do Claude Code neste mês"
+            secundario={fonte === 'opencode' ? 'apenas OpenCode' : 'sem sessões do Claude Code neste mês'}
           />
         )}
         <Kpi
@@ -126,14 +170,15 @@ export function IaCustos() {
 
       <div className="ia-grid">
         <section>
-          <h2 className="kicker">Atividade — {mesLegivel(dados.mes)}</h2>
+          <h2 className="kicker">Atividade — {mesPorExtenso(dados.mes)}</h2>
           <Heatmap dados={dados.heatmap} offset={dados.offset_semana_dia1} mes={dados.mes} />
 
           <h2 className="kicker" style={{ margin: '36px 0 14px' }}>Horas por semana</h2>
-          {!dados.claude_disponivel || dados.claude_horas_por_semana.length === 0 ? (
+          {!mostrarClaude || dados.claude_horas_por_semana.length === 0 ? (
             <p className="vazio">
-              sem sessões do Claude Code neste mês — fonte: transcritos locais em{' '}
-              <code>~/.claude/projects</code>.
+              {fonte === 'opencode'
+                ? 'apenas OpenCode — horas do Claude não fazem parte desta fonte.'
+                : 'sem sessões do Claude Code neste mês.'}
             </p>
           ) : (
             <HorasPorSemana semanas={dados.claude_horas_por_semana} />
@@ -148,8 +193,7 @@ export function IaCustos() {
           )}
           <p className="ia-nota">
             Custos estimados pela tabela de preços por modelo; a conversão para reais usa
-            a cotação ao vivo do dia. Sessões abertas a noite inteira contam no máximo 4h,
-            espelhando o dashboard do terminal.
+            a cotação ao vivo do dia.
           </p>
         </section>
       </div>
@@ -157,8 +201,46 @@ export function IaCustos() {
   )
 }
 
-/// Um KPI: kicker + valor grande serif tnum + linha secundária.
-/// Componente local: pequeno o suficiente para não merecer arquivo próprio.
+function SeletorMes({
+  mes,
+  setMes,
+}: {
+  mes: string
+  setMes: (m: string) => void
+}) {
+  return (
+    <span className="seletor-mes">
+      <button type="button" className="btn btn-ghost" aria-label="Mês anterior"
+        onClick={() => setMes(mesAnterior(mes))}>‹</button>
+      <span className="seletor-mes-rotulo">{mesPorExtenso(mes)}</span>
+      <button type="button" className="btn btn-ghost" aria-label="Mês seguinte"
+        disabled={mes === mesAtual()}
+        onClick={() => setMes(mesSeguinte(mes))}>›</button>
+    </span>
+  )
+}
+
+function FonteSegmented({
+  fonte,
+  setFonte,
+}: {
+  fonte: FonteIa
+  setFonte: (f: FonteIa) => void
+}) {
+  return (
+    <div className="seg" role="radiogroup" aria-label="Fonte dos dados">
+      {OPCOES_FONTE.map((op) => (
+        <label key={op} className={`seg-opt ${fonte === op ? 'selected' : ''}`}>
+          <input type="radio" name="fonte-ia" className="sr-only" value={op}
+            checked={fonte === op} onChange={() => setFonte(op)}
+            aria-label={ROTULO_FONTE[op]} />
+          {ROTULO_FONTE[op]}
+        </label>
+      ))}
+    </div>
+  )
+}
+
 function Kpi({ rotulo, principal, secundario }: { rotulo: string; principal: string; secundario: string }) {
   return (
     <div className="kpi">
@@ -169,12 +251,6 @@ function Kpi({ rotulo, principal, secundario }: { rotulo: string; principal: str
   )
 }
 
-/// Heatmap mensal: grid 7 linhas x N colunas, com offset inicial para
-/// alinhar o dia 1° com o dia da semana correto. `offset` (0 = segunda ...
-/// 6 = domingo) vem do SERVIDOR (`offset_semana_dia1`, calculado com
-/// `chrono` a partir do `mes` real) — antes era um valor fixo em 0 no
-/// cliente, o que fazia o dia 1 sempre cair na linha "seg" mesmo quando o
-/// mês começava em outro dia da semana.
 function Heatmap({
   dados,
   offset,
@@ -187,12 +263,9 @@ function Heatmap({
   if (dados.length === 0) {
     return <p className="vazio">sem dados de atividade no mês</p>
   }
-  // Dias FUTUROS do mês corrente ficam transparentes (não faz sentido
-  // pintar "sem atividade" num dia que ainda não aconteceu). Só se aplica
-  // quando `mes` é o mês corrente — meses passados não têm "futuro".
   const hoje = new Date()
-  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
-  const diaHoje = mesAtual === mes ? hoje.getDate() : Number.POSITIVE_INFINITY
+  const mesCorrente = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`
+  const diaHoje = mesCorrente === mes ? hoje.getDate() : Number.POSITIVE_INFINITY
 
   return (
     <div className="heatmap-linha">
@@ -221,10 +294,6 @@ function Heatmap({
   )
 }
 
-/// Seção "Horas por semana": uma linha por semana (`.semanas-linha`, já
-/// definida no CSS mas sem consumidor até então) — [rótulo 90px | barra
-/// 10px | valor "18h18m"]. Dados vêm de `claude_horas_por_semana`
-/// (`crates/servidor/src/ia.rs::calcular_horas_claude`).
 function HorasPorSemana({ semanas }: { semanas: import('../tipos').SemanaHoras[] }) {
   const maxHoras = semanas.reduce((m, s) => Math.max(m, s.horas), 0)
   return (
@@ -245,8 +314,6 @@ function HorasPorSemana({ semanas }: { semanas: import('../tipos').SemanaHoras[]
   )
 }
 
-/// Tabela de modelos: ranking por tokens DESC, com barra colorida por
-/// modelo (sonnet=acento, opus=vermelho, haiku=verde, outros=neutro).
 function TabelaModelos({
   modelos,
   cambio,
@@ -300,20 +367,6 @@ function corModelo(nome: string): string {
   return 'var(--color-neutral-500)'
 }
 
-function mesLegivel(mes: string): string {
-  // "2026-07" -> "julho de 2026" (pt-br best-effort, sem chrono JS).
-  const [ano, m] = mes.split('-')
-  const nomes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
-  const idx = Number(m) - 1
-  if (idx < 0 || idx > 11) return mes
-  return `${nomes[idx]} de ${ano}`
-}
-
-/// Abreviação do mês para o tooltip "D/mês" — a partir do `mes` da
-/// RESPOSTA (`"YYYY-MM"`), não do relógio local: antes usava
-/// `new Date().getMonth()`, o que rotulava errado qualquer mês que não
-/// fosse o corrente (ex.: olhando julho em agosto, mostrava "ago").
 function mesCurto(mes: string): string {
   const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
     'jul', 'ago', 'set', 'out', 'nov', 'dez']

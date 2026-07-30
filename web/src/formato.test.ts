@@ -9,6 +9,10 @@ import {
   formatarNumeroCompacto,
   formatarSegundos,
   intensidadeParaCor,
+  mesAnterior,
+  mesAtual,
+  mesPorExtenso,
+  mesSeguinte,
 } from './formato'
 
 describe('formatarSegundos', () => {
@@ -98,6 +102,21 @@ describe('formatarHorasMinutos', () => {
   })
 })
 
+describe('navegação de meses', () => {
+  it('mesAnterior e mesSeguinte cruzam a virada de ano', () => {
+    expect(mesAnterior('2026-01')).toBe('2025-12')
+    expect(mesSeguinte('2025-12')).toBe('2026-01')
+    expect(mesAnterior('2026-07')).toBe('2026-06')
+  })
+  it('mesPorExtenso formata em pt-BR', () => {
+    expect(mesPorExtenso('2026-07')).toBe('julho de 2026')
+  })
+  it('mesAtual retorna YYYY-MM válido', () => {
+    const atual = mesAtual()
+    expect(atual).toMatch(/^\d{4}-\d{2}$/)
+  })
+})
+
 describe('corNivel', () => {
   it('vermelho para ERROR/CRIT/FATAL (todas as variantes)', () => {
     for (const n of ['ERROR', 'ERRO', 'CRIT', 'CRITICAL', 'FATAL']) {
@@ -125,7 +144,7 @@ describe('intensidadeParaCor', () => {
     expect(intensidadeParaCor(2)).toBe('var(--color-accent-200)')
     expect(intensidadeParaCor(3)).toBe('var(--color-accent-400)')
     expect(intensidadeParaCor(4)).toBe('var(--color-accent-600)')
-    expect(intensidadeParaCor(5)).toBe('#a2503c')
+    expect(intensidadeParaCor(5)).toBe('var(--sev-vermelho)')
   })
   it('fora da faixa cai no neutro (defensivo)', () => {
     expect(intensidadeParaCor(99)).toBe('var(--color-neutral-200)')

@@ -85,6 +85,33 @@ export function formatarMoeda(
   return `R$ ${sinal}${comSeparadorDeMilhar(bruto, '.', ',')}`
 }
 
+/// Navegação de meses no formato "YYYY-MM" — aritmética direta em números
+/// para não depender de Date (fuso/dia do mês não importam aqui).
+export function mesAnterior(mes: string): string {
+  const [ano, m] = mes.split('-').map(Number)
+  return m === 1 ? `${ano - 1}-12` : `${ano}-${String(m - 1).padStart(2, '0')}`
+}
+
+export function mesSeguinte(mes: string): string {
+  const [ano, m] = mes.split('-').map(Number)
+  return m === 12 ? `${ano + 1}-01` : `${ano}-${String(m + 1).padStart(2, '0')}`
+}
+
+/// "2026-07" → "julho de 2026". Intl faz a tradução do nome do mês; o
+/// dia 2 evita qualquer surpresa de fuso (dia 1 UTC pode cair no mês
+/// anterior em fusos negativos como o do Brasil).
+/// docs: https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat
+export function mesPorExtenso(mes: string): string {
+  const data = new Date(`${mes}-02T12:00:00`)
+  return new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(data)
+}
+
+/// Mês atual local em "YYYY-MM" — o estado inicial do seletor da tela IA.
+export function mesAtual(): string {
+  const agora = new Date()
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`
+}
+
 /** Compacta um número grande com sufixo: 1_234_567 -> "1.2M". */
 export function formatarNumeroCompacto(valor: number): string {
   if (valor >= 1_000_000_000) return `${(valor / 1_000_000_000).toFixed(1)}B`
@@ -148,7 +175,7 @@ export function intensidadeParaCor(intensidade: number): string {
     case 2: return 'var(--color-accent-200)'
     case 3: return 'var(--color-accent-400)'
     case 4: return 'var(--color-accent-600)'
-    case 5: return '#a2503c'
+    case 5: return 'var(--sev-vermelho)'
     default: return 'var(--color-neutral-200)'
   }
 }

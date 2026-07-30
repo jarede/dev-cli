@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { buscarCambio, buscarCustosIa } from '../api'
 import type { Cambio, CustosIa, FonteIa } from '../tipos'
 import {
+  corDoModelo,
   formatarHorasMinutos,
   formatarMoeda,
   formatarNumeroCompacto,
@@ -12,6 +13,7 @@ import {
 } from '../formato'
 import { intensidadeParaCor } from '../formato'
 import type { Moeda } from '../formato'
+import { PizzaModelos } from './PizzaModelos'
 
 const ROTULOS_SEMANA = ['seg', '', 'qua', '', 'sex', '', 'dom']
 
@@ -189,7 +191,10 @@ export function IaCustos() {
           {dados.modelos.length === 0 ? (
             <p className="vazio">nenhum modelo usado no mês</p>
           ) : (
-            <TabelaModelos modelos={dados.modelos} cambio={cambio.usd_brl} moeda={moeda} />
+            <div className="modelos-grid">
+              <TabelaModelos modelos={dados.modelos} cambio={cambio.usd_brl} moeda={moeda} />
+              <PizzaModelos modelos={dados.modelos} />
+            </div>
           )}
           <p className="ia-nota">
             Custos estimados pela tabela de preços por modelo; a conversão para reais usa
@@ -335,8 +340,8 @@ function TabelaModelos({
         </tr>
       </thead>
       <tbody>
-        {modelos.map((m) => {
-          const cor = corModelo(m.modelo)
+        {modelos.map((m, i) => {
+          const cor = corDoModelo(m.modelo, i)
           const larg = maxCusto > 0 ? (m.custo_usd / maxCusto) * 100 : 0
           return (
             <tr key={m.modelo + m.provedor}>
@@ -357,14 +362,6 @@ function TabelaModelos({
       </tbody>
     </table>
   )
-}
-
-function corModelo(nome: string): string {
-  const n = nome.toLowerCase()
-  if (n.includes('opus')) return 'var(--sev-vermelho)'
-  if (n.includes('sonnet')) return 'var(--color-accent)'
-  if (n.includes('haiku')) return 'var(--sev-verde)'
-  return 'var(--color-neutral-500)'
 }
 
 function mesCurto(mes: string): string {

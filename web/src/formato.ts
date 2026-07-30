@@ -112,6 +112,23 @@ export function mesAtual(): string {
   return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`
 }
 
+/// Cor de um modelo nos gráficos (barras e pizza): os três da casa têm
+/// cor fixa; os demais ciclam uma paleta de variáveis do DS pelo índice.
+const CICLO_CORES_MODELO = [
+  'var(--color-accent-600)',
+  'var(--color-neutral-500)',
+  'var(--color-accent-300)',
+  'var(--color-neutral-700)',
+  'var(--color-accent-800)',
+]
+
+export function corDoModelo(modelo: string, indice: number): string {
+  if (modelo.includes('sonnet')) return 'var(--color-accent)'
+  if (modelo.includes('opus')) return 'var(--sev-vermelho)'
+  if (modelo.includes('haiku')) return 'var(--sev-verde)'
+  return CICLO_CORES_MODELO[indice % CICLO_CORES_MODELO.length]
+}
+
 /** Compacta um número grande com sufixo: 1_234_567 -> "1.2M". */
 export function formatarNumeroCompacto(valor: number): string {
   if (valor >= 1_000_000_000) return `${(valor / 1_000_000_000).toFixed(1)}B`

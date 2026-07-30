@@ -8,17 +8,17 @@
 // vice-versa) — por isso `disponivel` (OpenCode) e `claude_disponivel`
 // (Claude Code) são flags separadas, não uma só.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
+use chrono::{Datelike, Local, NaiveDate};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use nucleo::horas_sessao::{self, Sessao};
+use nucleo::horas_sessao;
 
 use crate::api::EstadoApi;
 
@@ -386,74 +386,13 @@ fn offset_semana_dia1(mes: &str) -> u32 {
         .unwrap_or(0)
 }
 
-/// Uma linha crua do JSONL do Claude Code — só os dois campos que
-/// interessam para calcular DURAÇÃO de sessão (dia + horário). Comparar
-/// com `crates/cli/src/ai/claude.rs::Registro`, que também lê `message`
-/// (para tokens/modelo) — aqui não precisamos disso, então nem
-/// desserializamos (campo ausente na struct = serde ignora silenciosamente).
-#[derive(Deserialize)]
-struct RegistroClaude {
-    timestamp: String,
-    #[serde(rename = "sessionId")]
-    session_id: Option<String>,
-}
-
-/// Lê todos os `.jsonl` sob `~/.claude/projects`, filtra pelo mês pedido e
-/// devolve uma `Sessao` (dia + duração em horas) por `sessionId` — a MESMA
-/// lógica de agrupamento de `crates/cli/src/ai/claude.rs::carregar_sessoes`,
-/// mas sem a parte de tokens/modelo (a tela IA · custos já mostra os custos
-/// via OpenCode; duplicar a tabela de preços do Claude aqui ficaria fora do
-/// escopo deste endpoint). `nucleo::horas_sessao::duracao_sessao` é quem
-/// aplica o clamp entre `MINIMO_HORAS` e `TETO_HORAS`.
-fn carregar_sessoes_claude(mes: &str) -> Vec<Sessao> {
-    let mut horarios_por_sessao: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
-
-    let arquivos = walkdir::WalkDir::new(diretorio_projetos_claude())
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entrada| entrada.path().extension().is_some_and(|ext| ext == "jsonl"));
-
-    for entrada in arquivos {
-        let Ok(conteudo) = std::fs::read_to_string(entrada.path()) else {
-            continue;
-        };
-        for linha in conteudo.lines() {
-            let Ok(registro) = serde_json::from_str::<RegistroClaude>(linha) else {
-                continue;
-            };
-            if !mes.is_empty() && !registro.timestamp.starts_with(mes) {
-                continue;
-            }
-            let Some(session_id) = registro.session_id else {
-                continue;
-            };
-            let Ok(instante) = DateTime::parse_from_rfc3339(&registro.timestamp) else {
-                continue;
-            };
-            horarios_por_sessao
-                .entry(session_id)
-                .or_default()
-                .push(instante.with_timezone(&Utc));
-        }
-    }
-
-    horarios_por_sessao
-        .into_values()
-        .filter_map(|mut horarios| {
-            horarios.sort();
-            let duracao_horas = horas_sessao::duracao_sessao(&horarios)?;
-            let dia = horarios.first()?.with_timezone(&Local).date_naive();
-            Some(Sessao { dia, duracao_horas })
-        })
-        .collect()
-}
-
 /// Agrega as sessões do Claude Code do mês em: disponibilidade, total de
 /// horas, média por dia ativo e horas por semana. `disponivel = false`
 /// quando não há NENHUMA sessão no mês — a UI mostra um estado vazio
 /// honesto em vez de "—" fingindo que o dado só ainda não carregou.
 fn calcular_horas_claude(mes: &str) -> (bool, f64, f64, Vec<SemanaHoras>) {
-    let sessoes = carregar_sessoes_claude(mes);
+    let (sessoes, _usos, _tokens_por_dia) =
+        nucleo::ia_claude::carregar_sessoes(&diretorio_projetos_claude(), mes);
     if sessoes.is_empty() {
         return (false, 0.0, 0.0, Vec::new());
     }

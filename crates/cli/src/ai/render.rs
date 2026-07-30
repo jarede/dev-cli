@@ -45,7 +45,7 @@ use owo_colors::OwoColorize;
 // resto deste crate (`opencode.rs`, `claude.rs`, `stats.rs`) escrevendo
 // `render::Sessao`/`render::duracao_sessao` sem precisar mudar imports.
 pub use nucleo::horas_sessao::{
-    MINIMO_HORAS, Sessao, TETO_HORAS, agregar_por_dia, agregar_por_semana, duracao_sessao,
+    MINIMO_HORAS, Sessao, TETO_HORAS, agregar_por_dia, agregar_por_semana,
 };
 
 // Formata um número grande de forma compacta (1.5K, 2.3M, 1.2B), para caber
@@ -1050,6 +1050,7 @@ pub fn renderizar_dashboard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nucleo::horas_sessao::duracao_sessao;
 
     #[test]
     fn numero_compacto_formata_por_ordem_de_grandeza() {

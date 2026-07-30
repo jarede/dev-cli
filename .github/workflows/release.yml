@@ -51,6 +51,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # O portal precisa existir em web/dist ANTES do cargo: o build.rs do
+      # crate servidor detecta o dist e embute os assets no binário.
+      - name: Instala Node e compila o portal
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build do portal (web/dist)
+        shell: bash
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
       - name: Instala o toolchain Rust para o alvo
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -58,7 +74,7 @@ jobs:
 
       - name: Compila em modo release
         shell: bash
-        run: cargo build --release --locked --target "$TARGET"
+        run: cargo build --release --locked --target "$TARGET" -p dev-cli -p servidor
 
       - name: Empacota o binário (Unix)
         if: runner.os != 'Windows'
@@ -68,8 +84,9 @@ jobs:
           mkdir -p dist
           nome="dev-cli-${TAG}-${TARGET}"
           cp "target/${TARGET}/release/dev-cli" dev-cli
-          tar -czf "dist/${nome}.tar.gz" dev-cli README.md
-          rm dev-cli
+          cp "target/${TARGET}/release/dev-server" dev-server
+          tar -czf "dist/${nome}.tar.gz" dev-cli dev-server README.md
+          rm dev-cli dev-server
 
       - name: Empacota o binário (Windows)
         if: runner.os == 'Windows'
@@ -78,8 +95,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $nome = "dev-cli-$env:TAG-$env:TARGET"
           Copy-Item "target/$env:TARGET/release/dev-cli.exe" -Destination "dev-cli.exe"
-          Compress-Archive -Path "dev-cli.exe","README.md" -DestinationPath "dist/$nome.zip"
-          Remove-Item "dev-cli.exe"
+          Copy-Item "target/$env:TARGET/release/dev-server.exe" -Destination "dev-server.exe"
+          Compress-Archive -Path "dev-cli.exe","dev-server.exe","README.md" -DestinationPath "dist/$nome.zip"
+          Remove-Item "dev-cli.exe","dev-server.exe"
 
       - name: Sobe o pacote como artefato do workflow
         uses: actions/upload-artifact@v7
@@ -174,6 +192,7 @@ jobs:
 
             def install
               bin.install "dev-cli"
+              bin.install "dev-server"
             end
 
             test do
@@ -197,7 +216,7 @@ jobs:
                   "64bit": {
                       "url": "https://github.com/jarede/dev-cli/releases/download/${TAG}/dev-cli-${TAG}-x86_64-pc-windows-msvc.zip",
                       "hash": "${SHA_WINDOWS_X86_64}",
-                      "bin": "dev-cli.exe"
+                      "bin": ["dev-cli.exe", "dev-server.exe"]
                   }
               },
               "checkver": {

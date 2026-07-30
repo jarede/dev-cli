@@ -15,11 +15,11 @@ um por task, com a mensagem indicada no passo de commit.
 ## Status das tasks (ATUALIZAR AQUI a cada task concluída)
 
 | Task | Descrição | Status | Commit |
-|---|---|---|---|
-| 1 | build.rs + portal.rs (include_dir + fallback) | pendente | — |
-| 2 | precedência no main.rs + teste caminho_db | pendente | — |
-| 3 | release.yml embala portal + dev-server | pendente | — |
-| 4 | README + CLAUDE.md | pendente | — |
+|---|---|---|---|---|
+| 1 | build.rs + portal.rs (include_dir + fallback) | concluída | ec018bf |
+| 2 | precedência no main.rs + teste caminho_db | concluída | f20d912 |
+| 3 | release.yml embala portal + dev-server | concluída | a4d1788 |
+| 4 | README + CLAUDE.md | concluída | 7051057 |
 | 5 | tag v0.2.0 + verificação | **fora do escopo — não fazer** | — |
 
 ## Estado no início

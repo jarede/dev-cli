@@ -8,7 +8,7 @@
 // vice-versa) — por isso `disponivel` (OpenCode) e `claude_disponivel`
 // (Claude Code) são flags separadas, não uma só.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use axum::Json;
@@ -19,6 +19,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use nucleo::horas_sessao;
+use nucleo::ia_claude;
 
 use crate::api::EstadoApi;
 
@@ -46,10 +47,34 @@ fn diretorio_projetos_claude() -> PathBuf {
     PathBuf::from(home).join(".claude/projects")
 }
 
-/// Query string de `/api/ia/custos`: `?mes=YYYY-MM`. Default = mês atual.
+/// Fonte dos dados: qual(is) origem(ns) entra(m) na agregação.
+#[derive(Clone, Copy, PartialEq)]
+enum Fonte {
+    Opencode,
+    Claude,
+    Ambos,
+}
+
+impl Fonte {
+    /// Parse do query param. `None` (ausente) = Ambos, o default da spec.
+    /// Valor desconhecido → `Err` com a mensagem que vira o corpo do 400.
+    fn parse(texto: Option<&str>) -> Result<Fonte, String> {
+        match texto {
+            None | Some("ambos") => Ok(Fonte::Ambos),
+            Some("opencode") => Ok(Fonte::Opencode),
+            Some("claude") => Ok(Fonte::Claude),
+            Some(outro) => Err(format!(
+                "fonte inválida: {outro:?} (esperado: opencode, claude ou ambos)"
+            )),
+        }
+    }
+}
+
+/// Query string de `/api/ia/custos`: `?mes=YYYY-MM&fonte=...`.
 #[derive(Deserialize)]
 pub struct ParamsCustos {
     pub mes: Option<String>,
+    pub fonte: Option<String>,
 }
 
 /// Estrutura completa da resposta JSON. Campos derivados calculados no
@@ -122,52 +147,219 @@ pub struct ModeloCusto {
     pub sessoes: i64,
     pub tokens: i64,
     pub custo_usd: f64,
+    pub tokens_cache: i64,
+    pub tokens_sem_cache: i64,
 }
 
 /// GET /api/ia/custos — pacote completo para a tela IA · custos do portal.
-/// Se o banco do OpenCode não existe ou falha, devolve `disponivel: false`
-/// e zeros — o portal mostra o estado "sem dados" sem quebrar.
+/// `?fonte=opencode|claude|ambos` (default `ambos`) decide a fonte dos
+/// dados; `?mes=YYYY-MM` (default mês atual) define o período.
 pub async fn custos(
-    // `_estado` está aqui só para casar com a assinatura exigida pela rota
-    // (precisa ter `State<EstadoApi>` para o `.with_state` aplicar); os
-    // dados do OpenCode moram em OUTRO banco (não no do dev-server), então
-    // não consultamos `estado.db` aqui.
     State(_estado): State<EstadoApi>,
     Query(params): Query<ParamsCustos>,
 ) -> Result<Json<CustosIa>, (StatusCode, String)> {
     let mes = params
         .mes
         .unwrap_or_else(|| Local::now().format("%Y-%m").to_string());
+    let fonte = Fonte::parse(params.fonte.as_deref()).map_err(|m| (StatusCode::BAD_REQUEST, m))?;
 
-    // DB ausente OU falhou de abrir: parte da resposta "vazia" em vez de
-    // 500 — a UI mostra o estado vazio sem piscar erro vermelho.
-    let mut resultado = match abrir_opencode() {
-        Some(conn) => match agregar_opencode(&conn, &mes) {
-            Ok(mut agreg) => {
-                // Streak é derivado do heatmap (a UI poderia calcular, mas
-                // fazer no servidor mantém o cliente burro).
-                agreg.streak_dias = calcular_streak(&agreg.heatmap, 0);
-                // `melhor_streak_dias` = maior sequência de dias não-zero
-                // dentro do mês.
-                agreg.melhor_streak_dias = calcular_melhor_streak(&agreg.heatmap);
-                agreg
-            }
-            Err(_) => resposta_vazia(&mes),
-        },
-        None => resposta_vazia(&mes),
+    let resultado = match fonte {
+        Fonte::Opencode => montar_resposta_opencode(&mes),
+        Fonte::Claude => montar_resposta_claude(&mes),
+        Fonte::Ambos => montar_resposta_ambos(&mes),
     };
 
-    // Câmpos independentes do OpenCode: offset do heatmap (sempre
-    // calculável a partir só do mês) e horas do Claude Code (fonte
-    // completamente separada — JSONL local, não o SQLite acima).
-    resultado.offset_semana_dia1 = offset_semana_dia1(&mes);
-    let (disponivel, horas_mes, media_dia_ativo, por_semana) = calcular_horas_claude(&mes);
-    resultado.claude_disponivel = disponivel;
-    resultado.claude_horas_mes = horas_mes;
-    resultado.claude_media_horas_dia_ativo = media_dia_ativo;
-    resultado.claude_horas_por_semana = por_semana;
-
     Ok(Json(resultado))
+}
+
+/// Monta a resposta completa para `fonte=opencode`: lê o banco do OpenCode
+/// e zera os campos do Claude (que não fazem sentido para esta fonte).
+fn montar_resposta_opencode(mes: &str) -> CustosIa {
+    let conn = match abrir_opencode() {
+        Some(c) => c,
+        None => return resposta_vazia(mes),
+    };
+    let agreg = match agregar_opencode(&conn, mes) {
+        Ok(a) => a,
+        Err(_) => return resposta_vazia(mes),
+    };
+    let heatmap = montar_heatmap(&agreg.tokens_por_dia, mes);
+    CustosIa {
+        mes: mes.to_string(),
+        disponivel: true,
+        tokens: agreg.tokens,
+        custo_usd: agreg.custo_usd,
+        cache_pct: agreg.cache_pct,
+        streak_dias: calcular_streak(&heatmap, 0),
+        melhor_streak_dias: calcular_melhor_streak(&heatmap),
+        heatmap,
+        offset_semana_dia1: offset_semana_dia1(mes),
+        modelos: agreg.modelos,
+        claude_disponivel: false,
+        claude_horas_mes: 0.0,
+        claude_media_horas_dia_ativo: 0.0,
+        claude_horas_por_semana: Vec::new(),
+    }
+}
+
+/// Monta a resposta completa para `fonte=claude`: lê os transcritos do
+/// Claude Code, calcula custo via tabela de preços do nucleo, e zera os
+/// campos do OpenCode.
+fn montar_resposta_claude(mes: &str) -> CustosIa {
+    let agreg = agregar_claude(mes);
+    if agreg.tokens == 0 && agreg.modelos.is_empty() {
+        return CustosIa {
+            mes: mes.to_string(),
+            disponivel: false,
+            tokens: 0,
+            custo_usd: 0.0,
+            cache_pct: 0.0,
+            streak_dias: 0,
+            melhor_streak_dias: 0,
+            heatmap: Vec::new(),
+            offset_semana_dia1: offset_semana_dia1(mes),
+            modelos: Vec::new(),
+            claude_disponivel: false,
+            claude_horas_mes: 0.0,
+            claude_media_horas_dia_ativo: 0.0,
+            claude_horas_por_semana: Vec::new(),
+        };
+    }
+    let heatmap = montar_heatmap(&agreg.tokens_por_dia, mes);
+    let (_disp, horas_mes, media_dia_ativo, por_semana) = calcular_horas_claude(mes);
+    CustosIa {
+        mes: mes.to_string(),
+        disponivel: true,
+        tokens: agreg.tokens,
+        custo_usd: agreg.custo_usd,
+        cache_pct: agreg.cache_pct,
+        streak_dias: calcular_streak(&heatmap, 0),
+        melhor_streak_dias: calcular_melhor_streak(&heatmap),
+        heatmap,
+        offset_semana_dia1: offset_semana_dia1(mes),
+        modelos: agreg.modelos,
+        claude_disponivel: true,
+        claude_horas_mes: horas_mes,
+        claude_media_horas_dia_ativo: media_dia_ativo,
+        claude_horas_por_semana: por_semana,
+    }
+}
+
+/// Monta a resposta completa para `fonte=ambos`: mescla os dados das duas
+/// fontes (OpenCode + Claude), somando tokens, custo, tokens_por_dia e
+/// concatenando modelos. A disponibilidade é true se UMA das fontes tiver
+/// dados.
+fn montar_resposta_ambos(mes: &str) -> CustosIa {
+    // Carrega OpenCode (pode falhar — tratamos como vazio).
+    let opencode = abrir_opencode().and_then(|conn| agregar_opencode(&conn, mes).ok());
+
+    // Carrega Claude (sempre "ok", pode vir vazio).
+    let claude = Some(agregar_claude(mes));
+
+    let (disponivel, tokens, custo_usd, cache_pct, heatmap, modelos) = match (opencode, claude) {
+        (Some(oc), Some(cl)) => {
+            let tokens = oc.tokens + cl.tokens;
+            let custo_usd = oc.custo_usd + cl.custo_usd;
+            let cache_total = (oc.cache_pct / 100.0 * oc.tokens as f64
+                + cl.cache_pct / 100.0 * cl.tokens as f64) as i64;
+            let tokens_total = tokens;
+            let cache_pct = if tokens_total > 0 {
+                cache_total as f64 * 100.0 / tokens_total as f64
+            } else {
+                0.0
+            };
+            // Mescla tokens_por_dia.
+            let mut tok_dia = oc.tokens_por_dia;
+            for (dia, t) in &cl.tokens_por_dia {
+                *tok_dia.entry(*dia).or_insert(0) += t;
+            }
+            let mut mods = oc.modelos;
+            mods.extend(cl.modelos);
+            mods.sort_by_key(|b| std::cmp::Reverse(b.tokens));
+            let heatmap = montar_heatmap(&tok_dia, mes);
+            (true, tokens, custo_usd, cache_pct, heatmap, mods)
+        }
+        (Some(oc), _) => {
+            let heatmap = montar_heatmap(&oc.tokens_por_dia, mes);
+            (
+                true,
+                oc.tokens,
+                oc.custo_usd,
+                oc.cache_pct,
+                heatmap,
+                oc.modelos,
+            )
+        }
+        (None, Some(cl)) => {
+            if cl.tokens == 0 && cl.modelos.is_empty() {
+                let heatmap = montar_heatmap(&cl.tokens_por_dia, mes);
+                return CustosIa {
+                    mes: mes.to_string(),
+                    disponivel: false,
+                    tokens: 0,
+                    custo_usd: 0.0,
+                    cache_pct: 0.0,
+                    streak_dias: 0,
+                    melhor_streak_dias: 0,
+                    heatmap,
+                    offset_semana_dia1: offset_semana_dia1(mes),
+                    modelos: Vec::new(),
+                    claude_disponivel: false,
+                    claude_horas_mes: 0.0,
+                    claude_media_horas_dia_ativo: 0.0,
+                    claude_horas_por_semana: Vec::new(),
+                };
+            }
+            let heatmap = montar_heatmap(&cl.tokens_por_dia, mes);
+            (
+                true,
+                cl.tokens,
+                cl.custo_usd,
+                cl.cache_pct,
+                heatmap,
+                cl.modelos,
+            )
+        }
+        (None, None) => {
+            let heatmap = montar_heatmap(&BTreeMap::new(), mes);
+            return CustosIa {
+                mes: mes.to_string(),
+                disponivel: false,
+                tokens: 0,
+                custo_usd: 0.0,
+                cache_pct: 0.0,
+                streak_dias: 0,
+                melhor_streak_dias: 0,
+                heatmap,
+                offset_semana_dia1: offset_semana_dia1(mes),
+                modelos: Vec::new(),
+                claude_disponivel: false,
+                claude_horas_mes: 0.0,
+                claude_media_horas_dia_ativo: 0.0,
+                claude_horas_por_semana: Vec::new(),
+            };
+        }
+    };
+
+    let (_disp, horas_mes, media_dia_ativo, por_semana) = calcular_horas_claude(mes);
+    let claude_tem = !por_semana.is_empty() || horas_mes > 0.0;
+
+    CustosIa {
+        mes: mes.to_string(),
+        disponivel,
+        tokens,
+        custo_usd,
+        cache_pct,
+        streak_dias: calcular_streak(&heatmap, 0),
+        melhor_streak_dias: calcular_melhor_streak(&heatmap),
+        heatmap,
+        offset_semana_dia1: offset_semana_dia1(mes),
+        modelos,
+        claude_disponivel: claude_tem,
+        claude_horas_mes: horas_mes,
+        claude_media_horas_dia_ativo: media_dia_ativo,
+        claude_horas_por_semana: por_semana,
+    }
 }
 
 /// Tenta abrir o banco do OpenCode; devolve None se não existe (ou se
@@ -203,10 +395,32 @@ fn resposta_vazia(mes: &str) -> CustosIa {
     }
 }
 
+/// Agregado do OpenCode: dados crus (sem heatmap/streak) — usados
+/// diretamente no modo `opencode` ou mesclados com Claude em `ambos`.
+/// O heatmap é construído pelo caller a partir do `tokens_por_dia` bruto
+/// para permitir a soma de dias antes da escala de intensidade.
+struct AgregadoOpencode {
+    tokens: i64,
+    custo_usd: f64,
+    cache_pct: f64,
+    tokens_por_dia: BTreeMap<NaiveDate, i64>,
+    modelos: Vec<ModeloCusto>,
+}
+
+/// Agregado do Claude Code: mesma estrutura, mesma ideia — o caller
+/// decide se usa isolado ou mescla com o OpenCode.
+struct AgregadoClaude {
+    tokens: i64,
+    custo_usd: f64,
+    cache_pct: f64,
+    tokens_por_dia: BTreeMap<NaiveDate, i64>,
+    modelos: Vec<ModeloCusto>,
+}
+
 /// Carrega os agregados do mês a partir do banco já aberto. Mesma
 /// estratégia de `ai stats opencode --json` (CLI): tokens por dia, modelos
 /// e totais — só sem a parte de sessões detalhadas (a UI não precisa).
-fn agregar_opencode(conn: &Connection, mes: &str) -> rusqlite::Result<CustosIa> {
+fn agregar_opencode(conn: &Connection, mes: &str) -> rusqlite::Result<AgregadoOpencode> {
     // Total de tokens e "cache %" no mês. Um único query_row com SUM
     // explícito por componente — não dependemos da coluna `cost` da
     // tabela `session` aqui porque queremos separar cache do total.
@@ -275,52 +489,128 @@ fn agregar_opencode(conn: &Connection, mes: &str) -> rusqlite::Result<CustosIa> 
             tokens_por_dia.insert(d, t);
         }
     }
-    let heatmap = montar_heatmap(&tokens_por_dia, mes);
 
     // Modelos do mês (ranking por tokens DESC).
     let mut stmt = conn.prepare(
-        "SELECT
-            json_extract(model, '$.id') AS modelo,
-            COALESCE(json_extract(model, '$.providerID'), 'desconhecido') AS provedor,
-            COUNT(*) AS sessoes,
-            COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning + tokens_cache_write + tokens_cache_read), 0) AS tokens,
-            COALESCE(SUM(cost), 0) AS custo
+        "SELECT json_extract(model, '$.id') AS modelo,
+                COALESCE(json_extract(model, '$.providerID'), 'desconhecido') AS provedor,
+                COUNT(*) AS sessoes,
+                COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning \
+                             + tokens_cache_write + tokens_cache_read), 0) AS tokens,
+                COALESCE(SUM(tokens_cache_write + tokens_cache_read), 0) AS tokens_cache,
+                COALESCE(SUM(cost), 0) AS custo
          FROM session
          WHERE model IS NOT NULL
            AND (?1 = '' OR strftime('%Y-%m', time_created / 1000, 'unixepoch', 'localtime') = ?1)
          GROUP BY modelo, provedor
-         ORDER BY tokens DESC"
+         ORDER BY tokens DESC",
     )?;
     let mut modelos: Vec<ModeloCusto> = Vec::new();
     let linhas = stmt.query_map(rusqlite::params![mes], |r| {
+        let tokens: i64 = r.get(3)?;
+        let tokens_cache: i64 = r.get(4)?;
         Ok(ModeloCusto {
             modelo: r.get(0)?,
             provedor: r.get(1)?,
             sessoes: r.get(2)?,
-            tokens: r.get(3)?,
-            custo_usd: r.get(4)?,
+            tokens,
+            custo_usd: r.get(5)?,
+            tokens_cache,
+            tokens_sem_cache: tokens - tokens_cache,
         })
     })?;
     for m in linhas {
         modelos.push(m?);
     }
 
-    Ok(CustosIa {
-        mes: mes.to_string(),
-        disponivel: true,
+    Ok(AgregadoOpencode {
         tokens: tokens_total,
         custo_usd,
         cache_pct,
-        streak_dias: 0,        // preenchido pelo caller
-        melhor_streak_dias: 0, // preenchido pelo caller
-        heatmap,
-        offset_semana_dia1: 0, // preenchido pelo caller
+        tokens_por_dia,
         modelos,
-        claude_disponivel: false,            // preenchido pelo caller
-        claude_horas_mes: 0.0,               // preenchido pelo caller
-        claude_media_horas_dia_ativo: 0.0,   // preenchido pelo caller
-        claude_horas_por_semana: Vec::new(), // preenchido pelo caller
     })
+}
+
+/// Carrega e agrega os dados do Claude Code do mês: lê os JSONL
+/// (`~/.claude/projects/`), calcula custo via `calcular_custo_detalhado`
+/// (mesma tabela de preços do CLI), e devolve o agregado bruto. Se o
+/// diretório não existe ou não há sessões no mês, devolve tudo zero /
+/// vazio — nunca erra.
+fn agregar_claude(mes: &str) -> AgregadoClaude {
+    let dir = diretorio_projetos_claude();
+    if !dir.exists() {
+        return AgregadoClaude {
+            tokens: 0,
+            custo_usd: 0.0,
+            cache_pct: 0.0,
+            tokens_por_dia: BTreeMap::new(),
+            modelos: Vec::new(),
+        };
+    }
+
+    // carregar_sessoes devolve uma tupla (sessoes, usos, tokens_por_dia),
+    // não Result — erros de I/O são silenciosos (pula linha malformada).
+    let (_sessoes, usos, tokens_por_dia) = ia_claude::carregar_sessoes(&dir, mes);
+
+    // Agrupa usos por modelo para calcular custo por modelo.
+    let mut por_modelo: HashMap<String, (i64, i64, i64, i64)> = HashMap::new();
+    for u in &usos {
+        let e = por_modelo.entry(u.modelo.clone()).or_default();
+        e.0 += u.tokens_entrada;
+        e.1 += u.tokens_cache_escrita;
+        e.2 += u.tokens_cache_leitura;
+        e.3 += u.tokens_saida;
+    }
+
+    let tokens_total: i64 = por_modelo
+        .values()
+        .map(|(e, cw, cr, s)| e + cw + cr + s)
+        .sum();
+    let mut custo_usd: f64 = 0.0;
+    let mut cache_tokens: i64 = 0;
+    let mut modelos: Vec<ModeloCusto> = Vec::new();
+
+    for (modelo, &(entrada, cache_escrita, cache_leitura, saida)) in &por_modelo {
+        let t_total = entrada + cache_escrita + cache_leitura + saida;
+        let t_cache = cache_escrita + cache_leitura;
+        cache_tokens += t_cache;
+
+        let custo = ia_claude::calcular_custo_detalhado(
+            modelo,
+            entrada,
+            cache_escrita,
+            cache_leitura,
+            saida,
+        );
+        let custo_modelo = custo.map(|c| c.total()).unwrap_or(0.0);
+        custo_usd += custo_modelo;
+
+        modelos.push(ModeloCusto {
+            modelo: modelo.to_string(),
+            provedor: String::from("claude-code"),
+            sessoes: 0,
+            tokens: t_total,
+            custo_usd: custo_modelo,
+            tokens_cache: t_cache,
+            tokens_sem_cache: entrada + saida,
+        });
+    }
+    modelos.sort_by_key(|b| std::cmp::Reverse(b.tokens));
+
+    let cache_pct = if tokens_total > 0 {
+        cache_tokens as f64 * 100.0 / tokens_total as f64
+    } else {
+        0.0
+    };
+
+    AgregadoClaude {
+        tokens: tokens_total,
+        custo_usd,
+        cache_pct,
+        tokens_por_dia,
+        modelos,
+    }
 }
 
 /// Monta o heatmap de um mês: para cada dia 1..=último, intensidade 0..=5

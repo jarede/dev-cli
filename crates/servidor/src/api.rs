@@ -271,6 +271,9 @@ fn erro_interno<E: std::fmt::Display>(erro: E) -> (StatusCode, String) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+    use std::sync::Mutex;
+
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
@@ -283,6 +286,11 @@ mod tests {
     use tower::ServiceExt;
 
     use nucleo::db::init_db;
+
+    /// Serializa testes que mexem em `std::env::set_var` (global, thread-safe
+    /// mas afeta todas as threads do processo). Cada teste de IA custos trava
+    /// este mutex antes de tocar nas env vars.
+    static IA_CUSTOS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     /// Estado de teste: banco em memória com o schema criado.
     fn estado_teste() -> EstadoApi {
@@ -635,17 +643,12 @@ mod tests {
 
     #[tokio::test]
     async fn ia_custos_sem_banco_devolve_vazio() {
-        // Força um caminho inexistente via env: a função `caminho_db_opencode`
-        // lê `DEV_CLI_OPENCODE_DB` antes de cair no default de `~/.local/...`
-        // (que pode existir no ambiente do dev).
-        // `tempdir` seria ideal mas ia trazer uma dep nova; um path /tmp
-        // com nome aleatório improvável basta.
+        let _lock = IA_CUSTOS_LOCK.lock().unwrap();
         let caminho_falso = std::env::temp_dir().join("dev-cli-ia-test-que-nao-existe.db");
-        // `set_var` é `unsafe` desde o Rust 1.86 (race em programas multi-thread);
-        // aceitável aqui porque o teste é serial e o `unsafe` é local.
         unsafe { std::env::set_var("DEV_CLI_OPENCODE_DB", &caminho_falso) };
 
-        let (status, json) = get_json(criar_rotas(estado_teste()), "/api/ia/custos").await;
+        let (status, json) =
+            get_json(criar_rotas(estado_teste()), "/api/ia/custos?fonte=opencode").await;
         unsafe { std::env::remove_var("DEV_CLI_OPENCODE_DB") };
 
         assert_eq!(status, StatusCode::OK);
@@ -663,5 +666,51 @@ mod tests {
         let (status, json) = get_json(criar_rotas(estado_teste()), "/api/ia/cambio").await;
         assert_eq!(status, StatusCode::OK);
         assert!(json["usd_brl"].as_f64().unwrap() > 0.0);
+    }
+
+    #[tokio::test]
+    async fn ia_custos_fonte_claude_calcula_custo_dos_transcritos() {
+        let _lock = IA_CUSTOS_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let projeto_dir = dir.path().join("meu-projeto");
+        std::fs::create_dir_all(&projeto_dir).unwrap();
+        let mes_atual = chrono::Local::now().format("%Y-%m");
+
+        // Duas linhas simulando mensagens de assistente numa sessão.
+        let jsonl = format!(
+            r#"{{"timestamp":"{mes_atual}-01T10:00:00Z","sessionId":"sess-1","message":{{"model":"claude-sonnet-5","usage":{{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}}
+{{"timestamp":"{mes_atual}-01T10:05:00Z","sessionId":"sess-1","message":{{"model":"claude-sonnet-5","usage":{{"input_tokens":200,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}}"#
+        );
+        std::fs::write(projeto_dir.join("sessao.jsonl"), &jsonl).unwrap();
+
+        unsafe { std::env::set_var("DEV_CLI_CLAUDE_PROJETOS_DIR", dir.path()) };
+
+        let (status, json) = get_json(
+            criar_rotas(estado_teste()),
+            &format!("/api/ia/custos?fonte=claude&mes={mes_atual}"),
+        )
+        .await;
+
+        unsafe { std::env::remove_var("DEV_CLI_CLAUDE_PROJETOS_DIR") };
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["disponivel"], true);
+        // 100 + 200 + 50 + 100 = 450 tokens
+        assert_eq!(json["tokens"], 450);
+        assert!(json["custo_usd"].as_f64().unwrap() > 0.0);
+        let modelos = json["modelos"].as_array().unwrap();
+        assert_eq!(modelos.len(), 1);
+        assert_eq!(modelos[0]["modelo"], "claude-sonnet-5");
+        assert_eq!(modelos[0]["provedor"], "claude-code");
+        assert_eq!(modelos[0]["tokens"], 450);
+    }
+
+    #[tokio::test]
+    async fn ia_custos_fonte_invalida_devolve_400() {
+        let _lock = IA_CUSTOS_LOCK.lock().unwrap();
+        let (status, _json) =
+            get_json(criar_rotas(estado_teste()), "/api/ia/custos?fonte=invalida").await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }

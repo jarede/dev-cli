@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { Cabecalho } from './Cabecalho'
 import type { ContainerResumo } from '../tipos'
@@ -81,5 +81,44 @@ describe('Cabecalho', () => {
     expect(screen.getByText('Histórico')).toBeInTheDocument()
     expect(screen.getByText('IA · custos')).toBeInTheDocument()
     expect(screen.getByText('Configuração')).toBeInTheDocument()
+  })
+
+  describe('toggle de tema', () => {
+    it('não mostra botão quando props de tema não são passadas', () => {
+      render(<Cabecalho containers={[]} erro={null} />, { wrapper: MemoryRouter })
+      expect(screen.queryByRole('button', { name: /alternar/i })).not.toBeInTheDocument()
+    })
+
+    it('mostra botão ◐ quando tema e alternarTema são fornecidos', () => {
+      render(
+        <Cabecalho containers={[]} erro={null} tema="claro" alternarTema={vi.fn()} />,
+        { wrapper: MemoryRouter },
+      )
+      expect(screen.getByRole('button', { name: /alternar/i })).toBeInTheDocument()
+      expect(screen.getByText('◐')).toBeInTheDocument()
+    })
+
+    it('clique no botão chama alternarTema', () => {
+      const alternar = vi.fn()
+      render(
+        <Cabecalho containers={[]} erro={null} tema="escuro" alternarTema={alternar} />,
+        { wrapper: MemoryRouter },
+      )
+      fireEvent.click(screen.getByRole('button', { name: /alternar/i }))
+      expect(alternar).toHaveBeenCalledOnce()
+    })
+
+    it('aria-label reflete o tema atual', () => {
+      const { rerender } = render(
+        <Cabecalho containers={[]} erro={null} tema="claro" alternarTema={vi.fn()} />,
+        { wrapper: MemoryRouter },
+      )
+      expect(screen.getByRole('button', { name: /escuro/i })).toBeInTheDocument()
+
+      rerender(
+        <Cabecalho containers={[]} erro={null} tema="escuro" alternarTema={vi.fn()} />,
+      )
+      expect(screen.getByRole('button', { name: /claro/i })).toBeInTheDocument()
+    })
   })
 })

@@ -9,6 +9,7 @@ import { Route, Routes } from 'react-router-dom'
 import { buscarAlertas, buscarContainers, buscarErros } from './api'
 import type { Alerta, ContainerResumo } from './tipos'
 import { Cabecalho } from './componentes/Cabecalho'
+import { useTema } from './useTema'
 import { Configuracao } from './componentes/Configuracao'
 import type { ErroLogComDestaque } from './componentes/FeedErros'
 import { Historico } from './componentes/Historico'
@@ -26,6 +27,7 @@ const INTERVALO_POLLING_MS = 15_000
 const TETO_FEED = 50
 
 function App() {
+  const { tema, alternar } = useTema()
   const [containers, setContainers] = useState<ContainerResumo[]>([])
   const [alertas, setAlertas] = useState<Alerta[]>([])
   const [erros, setErros] = useState<ErroLogComDestaque[]>([])
@@ -131,7 +133,7 @@ function App() {
 
   return (
     <>
-      <Cabecalho containers={containers} erro={erro} />
+      <Cabecalho containers={containers} erro={erro} tema={tema} alternarTema={alternar} />
       <Routes>
         {ROTAS.map((r) => (
           <Route key={r.caminho} path={r.caminho} element={elementoPorCaminho[r.caminho]} />

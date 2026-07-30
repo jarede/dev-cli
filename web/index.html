@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>dev-cli · portal</title>
+    <script>
+      // Anti-flash do tema: lê localStorage, cai para preferência do SO,
+      // e grava data-theme no <html> antes do CSS carregar — zero flash.
+      // O valor salvo no localStorage é pt-br ('claro'/'escuro', mesmo
+      // vocabulário do resto do domínio — ver useTema.ts), mas o atributo
+      // `data-theme` carimbado aqui usa 'dark'/'light': é o que o CSS
+      // espera (`:root[data-theme="dark"]` em index.css).
+      (function () {
+        var salvo = localStorage.getItem('dev-cli-tema')
+        var escuro = salvo === 'escuro' || (salvo !== 'claro' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = escuro ? 'dark' : 'light'
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

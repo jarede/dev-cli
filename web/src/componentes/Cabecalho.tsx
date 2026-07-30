@@ -17,9 +17,13 @@ interface Props {
   containers: ContainerResumo[]
   /** Mensagem de erro da última busca; null = tudo bem. */
   erro: string | null
+  /** Tema atual ('claro' | 'escuro') para o toggle visual. Opcional para não quebrar usos existentes. */
+  tema?: 'claro' | 'escuro'
+  /** Função para alternar o tema. Opcional para não quebrar usos existentes. */
+  alternarTema?: () => void
 }
 
-export function Cabecalho({ containers, erro }: Props) {
+export function Cabecalho({ containers, erro, tema, alternarTema }: Props) {
   const problemas = containers.filter((c) => c.severidade !== 'Verde').length
   const reqs = containers.reduce((soma, c) => soma + c.reqs, 0)
   const erros = containers.reduce((soma, c) => soma + c.erros + c.crits, 0)
@@ -44,6 +48,17 @@ export function Cabecalho({ containers, erro }: Props) {
           {problemas} problema{problemas === 1 ? '' : 's'} · {containers.length} containers ·{' '}
           {formatarNumero(reqs)} reqs · {formatarNumero(erros)} erros
         </span>
+        {alternarTema !== undefined && (
+          <button
+            className="btn btn-ghost"
+            onClick={alternarTema}
+            aria-label={`Alternar para tema ${tema === 'escuro' ? 'claro' : 'escuro'}`}
+            title={`Alternar para tema ${tema === 'escuro' ? 'claro' : 'escuro'}`}
+            type="button"
+          >
+            ◐
+          </button>
+        )}
       </nav>
       {erro !== null && (
         <div className="banner-api-fora">

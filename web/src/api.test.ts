@@ -129,6 +129,15 @@ describe('cliente da API', () => {
     expect(fetchFalso).toHaveBeenCalledWith('/api/ia/custos?mes=2026-07')
   })
 
+  it('buscarCustosIa monta a query com mes e fonte', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(respostaJson({}))
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await buscarCustosIa('2026-06', 'claude')
+
+    expect(fetchFalso).toHaveBeenCalledWith('/api/ia/custos?mes=2026-06&fonte=claude')
+  })
+
   it('buscarCambio chama o endpoint fixo', async () => {
     const fetchFalso = vi.fn().mockResolvedValue(respostaJson({ usd_brl: 5.42 }))
     vi.stubGlobal('fetch', fetchFalso)

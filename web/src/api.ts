@@ -11,6 +11,7 @@ import type {
   CustosIa,
   ErroLog,
   Execucao,
+  FonteIa,
   HistoricoContainer,
   InicioExecucao,
   LinhaLog,
@@ -85,11 +86,16 @@ export function buscarErros(desdeId: number, limite = 100): Promise<ErroLog[]> {
   return buscarJson(`/api/erros?desde_id=${desdeId}&limite=${limite}`)
 }
 
-/// Pacote completo da tela IA · custos: tokens/custo no mês, heatmap,
-/// streak e ranking de modelos. `mes` = "YYYY-MM"; default = mês atual
-/// (resolvido no servidor, via Local::now()).
-export function buscarCustosIa(mes?: string): Promise<CustosIa> {
-  const query = mes !== undefined ? `?mes=${encodeURIComponent(mes)}` : ''
+/// Pacote completo da tela IA · custos. `mes` = "YYYY-MM" (default: mês
+/// atual no servidor); `fonte` filtra a origem (default 'ambos' no
+/// servidor — omitimos o param quando o caller não passa, mantendo a URL
+/// mínima). URLSearchParams cuida do encoding dos dois params.
+/// docs: https://developer.mozilla.org/docs/Web/API/URLSearchParams
+export function buscarCustosIa(mes?: string, fonte?: FonteIa): Promise<CustosIa> {
+  const params = new URLSearchParams()
+  if (mes !== undefined) params.set('mes', mes)
+  if (fonte !== undefined) params.set('fonte', fonte)
+  const query = params.size > 0 ? `?${params}` : ''
   return buscarJson(`/api/ia/custos${query}`)
 }
 

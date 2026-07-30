@@ -114,6 +114,10 @@ export interface CelulaHeatmap {
   intensidade: number
 }
 
+/// Fonte dos dados da tela IA · custos — espelha o query param `fonte`
+/// de /api/ia/custos ('ambos' é o default do servidor E da UI).
+export type FonteIa = 'opencode' | 'claude' | 'ambos'
+
 /// Modelo no ranking mensal (por tokens DESC).
 export interface ModeloCusto {
   modelo: string
@@ -121,6 +125,8 @@ export interface ModeloCusto {
   sessoes: number
   tokens: number
   custo_usd: number
+  tokens_cache: number
+  tokens_sem_cache: number
 }
 
 /// Câmbio USD → BRL exposto em /api/ia/cambio.

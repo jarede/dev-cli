@@ -50,14 +50,27 @@ export function IaCustos() {
     }
   }, [mes, fonte])
 
-  // Estado vazio conforme a fonte (spec §3).
+  // Estado vazio conforme a fonte (spec §3). A mensagem é JSX normal (não
+  // `dangerouslySetInnerHTML`): o `<code>` inline é só marcação estática,
+  // sem HTML vindo de fora — não há motivo para abrir mão do escape
+  // automático do React aqui.
   if (dados !== null && !dados.disponivel) {
     const mensagem =
-      fonte === 'opencode'
-        ? 'O banco do OpenCode não foi encontrado em <code>~/.local/share/opencode/opencode.db</code>. Rode o OpenCode pelo menos uma vez para popular os dados, ou aponte a env <code>DEV_CLI_OPENCODE_DB</code> para o caminho correto.'
-        : fonte === 'claude'
-          ? 'Nenhuma sessão do Claude Code encontrada no mês. Os transcritos ficam em <code>~/.claude/projects</code>.'
-          : 'Nenhuma das fontes tem dados neste mês.'
+      fonte === 'opencode' ? (
+        <>
+          O banco do OpenCode não foi encontrado em{' '}
+          <code>~/.local/share/opencode/opencode.db</code>. Rode o OpenCode pelo menos uma vez
+          para popular os dados, ou aponte a env <code>DEV_CLI_OPENCODE_DB</code> para o caminho
+          correto.
+        </>
+      ) : fonte === 'claude' ? (
+        <>
+          Nenhuma sessão do Claude Code encontrada no mês. Os transcritos ficam em{' '}
+          <code>~/.claude/projects</code>.
+        </>
+      ) : (
+        'Nenhuma das fontes tem dados neste mês.'
+      )
     return (
       <main className="shell" data-screen-label="IA e custos">
         <header className="tela-header">
@@ -75,7 +88,7 @@ export function IaCustos() {
             </button>
           </span>
         </header>
-        <p className="vazio" dangerouslySetInnerHTML={{ __html: mensagem }} />
+        <p className="vazio">{mensagem}</p>
       </main>
     )
   }

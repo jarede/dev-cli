@@ -49,7 +49,7 @@ describe('IaCustos', () => {
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
-    expect(await screen.findByText('claude-sonnet-4')).toBeInTheDocument()
+    await screen.findAllByText('claude-sonnet-4')
     expect(screen.getByText(/412\.6M/)).toBeInTheDocument()
     expect(screen.getByText(/14 dias/)).toBeInTheDocument()
   })
@@ -61,7 +61,7 @@ describe('IaCustos', () => {
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
-    await screen.findByText('claude-sonnet-4')
+    await screen.findAllByText('claude-sonnet-4')
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 
@@ -70,7 +70,7 @@ describe('IaCustos', () => {
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
-    await screen.findByText('claude-sonnet-4')
+    await screen.findAllByText('claude-sonnet-4')
     expect(screen.getByText('R$ 1.010,29')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('mostrar em US$'))
@@ -98,7 +98,7 @@ describe('IaCustos', () => {
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
-    await screen.findByText('claude-sonnet-4')
+    await screen.findAllByText('claude-sonnet-4')
     const voltar = screen.getByRole('button', { name: /mês anterior/i })
     const avancar = screen.getByRole('button', { name: /mês seguinte/i })
     expect(avancar).toBeDisabled()
@@ -127,7 +127,7 @@ describe('IaCustos', () => {
     cambioFalso.mockResolvedValue({ usd_brl: 5.42 })
     render(<IaCustos />)
 
-    await screen.findByText('claude-sonnet-4')
+    await screen.findAllByText('claude-sonnet-4')
     fireEvent.click(screen.getByLabelText('Claude'))
     await waitFor(() => {
       expect(screen.getByText('Claude · câmbio R$ 5,42')).toBeInTheDocument()

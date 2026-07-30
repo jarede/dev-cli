@@ -23,6 +23,15 @@ describe('fatiasPizza', () => {
     expect(fatias.find((f) => f.modelo.includes('sonnet'))?.cor).toBe('var(--color-accent)')
     expect(fatias.find((f) => f.modelo.includes('opus'))?.cor).toBe('var(--sev-vermelho)')
   })
+  it('mesmo modelo em dois provedores vira UMA fatia com a soma', () => {
+    const fatias = fatiasPizza([
+      { ...modelo('claude-sonnet-4', 300), provedor: 'anthropic' },
+      { ...modelo('claude-sonnet-4', 700), provedor: 'claude-code' },
+    ])
+    expect(fatias).toHaveLength(1)
+    expect(fatias[0].modelo).toBe('claude-sonnet-4')
+    expect(fatias[0].pct).toBe(100)
+  })
 })
 
 describe('PizzaModelos', () => {
@@ -37,5 +46,17 @@ describe('PizzaModelos', () => {
   it('retorna null sem modelos', () => {
     const { container } = render(<PizzaModelos modelos={[]} />)
     expect(container.innerHTML).toBe('')
+  })
+  it('mesmo modelo em dois provedores aparece uma única vez na legenda', () => {
+    render(
+      <PizzaModelos
+        modelos={[
+          { ...modelo('claude-sonnet-4', 300), provedor: 'anthropic' },
+          { ...modelo('claude-sonnet-4', 700), provedor: 'claude-code' },
+        ]}
+      />,
+    )
+    expect(screen.getAllByText('claude-sonnet-4')).toHaveLength(1)
+    expect(screen.getByText('100,0%')).toBeInTheDocument()
   })
 })

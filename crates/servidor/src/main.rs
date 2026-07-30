@@ -10,6 +10,7 @@
 
 mod api;
 mod ia;
+mod portal;
 mod testes_api;
 
 use std::path::PathBuf;

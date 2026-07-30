@@ -38,5 +38,6 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+include_dir = "0.7"
 walkdir = "2.5"
 nucleo = { path = "crates/nucleo" }

@@ -1,5 +1,5 @@
 import type { ModeloCusto } from '../tipos'
-import { corDoModelo, formatarNumero } from '../formato'
+import { corDoModelo } from '../formato'
 
 export interface FatiaPizza {
   modelo: string

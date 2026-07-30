@@ -147,8 +147,6 @@ pub struct ModeloCusto {
     pub sessoes: i64,
     pub tokens: i64,
     pub custo_usd: f64,
-    pub tokens_cache: i64,
-    pub tokens_sem_cache: i64,
 }
 
 /// GET /api/ia/custos — pacote completo para a tela IA · custos do portal.
@@ -497,7 +495,6 @@ fn agregar_opencode(conn: &Connection, mes: &str) -> rusqlite::Result<AgregadoOp
                 COUNT(*) AS sessoes,
                 COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning \
                              + tokens_cache_write + tokens_cache_read), 0) AS tokens,
-                COALESCE(SUM(tokens_cache_write + tokens_cache_read), 0) AS tokens_cache,
                 COALESCE(SUM(cost), 0) AS custo
          FROM session
          WHERE model IS NOT NULL
@@ -507,16 +504,12 @@ fn agregar_opencode(conn: &Connection, mes: &str) -> rusqlite::Result<AgregadoOp
     )?;
     let mut modelos: Vec<ModeloCusto> = Vec::new();
     let linhas = stmt.query_map(rusqlite::params![mes], |r| {
-        let tokens: i64 = r.get(3)?;
-        let tokens_cache: i64 = r.get(4)?;
         Ok(ModeloCusto {
             modelo: r.get(0)?,
             provedor: r.get(1)?,
             sessoes: r.get(2)?,
-            tokens,
-            custo_usd: r.get(5)?,
-            tokens_cache,
-            tokens_sem_cache: tokens - tokens_cache,
+            tokens: r.get(3)?,
+            custo_usd: r.get(4)?,
         })
     })?;
     for m in linhas {
@@ -592,8 +585,6 @@ fn agregar_claude(mes: &str) -> AgregadoClaude {
             sessoes: 0,
             tokens: t_total,
             custo_usd: custo_modelo,
-            tokens_cache: t_cache,
-            tokens_sem_cache: entrada + saida,
         });
     }
     modelos.sort_by_key(|b| std::cmp::Reverse(b.tokens));

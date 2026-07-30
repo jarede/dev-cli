@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/react'
 import { PizzaModelos, fatiasPizza } from './PizzaModelos'
 import type { ModeloCusto } from '../tipos'
 
-const modelo = (nome: string, tokens: number, cache = 0, semCache = 0): ModeloCusto =>
-  ({ modelo: nome, provedor: 'x', sessoes: 1, tokens, custo_usd: 0, tokens_cache: cache, tokens_sem_cache: semCache })
+const modelo = (nome: string, tokens: number): ModeloCusto =>
+  ({ modelo: nome, provedor: 'x', sessoes: 1, tokens, custo_usd: 0 })
 
 describe('fatiasPizza', () => {
   it('ordena por tokens desc e calcula percentuais', () => {

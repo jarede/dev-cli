@@ -27,7 +27,7 @@ function custos(parcial: Partial<CustosIa>): CustosIa {
     ],
     offset_semana_dia1: 2,
     modelos: [
-      { modelo: 'claude-sonnet-4', provedor: 'anthropic', sessoes: 10, tokens: 1000, custo_usd: 100, tokens_cache: 500, tokens_sem_cache: 500 },
+      { modelo: 'claude-sonnet-4', provedor: 'anthropic', sessoes: 10, tokens: 1000, custo_usd: 100 },
     ],
     claude_disponivel: true,
     claude_horas_mes: 61.33,

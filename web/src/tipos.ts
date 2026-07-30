@@ -125,8 +125,6 @@ export interface ModeloCusto {
   sessoes: number
   tokens: number
   custo_usd: number
-  tokens_cache: number
-  tokens_sem_cache: number
 }
 
 /// Câmbio USD → BRL exposto em /api/ia/cambio.

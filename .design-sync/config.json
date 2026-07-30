@@ -1,0 +1,27 @@
+{
+  "projectId": "13a72531-8982-478f-b392-ad487be13ec3",
+  "shape": "package",
+  "readmeHeader": ".design-sync/conventions.md",
+  "pkg": "web",
+  "entry": "web/dist-lib/index.js",
+  "globalName": "DevCliPortal",
+  "srcDir": "src/componentes",
+  "tsconfig": "tsconfig.app.json",
+  "cssEntry": "src/index.css",
+  "libOverrides": {
+    "css.mjs": "resolver url('/fontes/…') absolutas do padrão Vite public/ nos @font-face do index.css"
+  },
+  "extraFonts": [],
+  "extraEntries": ["../.design-sync/extra/roteador-preview.tsx"],
+  "provider": { "component": "RoteadorPreview" },
+  "overrides": {
+    "PainelContainer": { "cardMode": "single", "viewport": "900x640" },
+    "TabelaContainers": { "cardMode": "column" },
+    "VisaoGeral": { "cardMode": "column", "viewport": "1240x900" },
+    "Cabecalho": { "cardMode": "column" },
+    "Historico": { "cardMode": "column" },
+    "IaCustos": { "cardMode": "column", "viewport": "1240x900" },
+    "Testes": { "cardMode": "column" },
+    "Configuracao": { "cardMode": "column" }
+  }
+}

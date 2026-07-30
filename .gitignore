@@ -5,3 +5,10 @@
 /.env
 # Logs e snapshots transitórios do playwright-mcp (inspeção do portal no browser).
 /.playwright-mcp
+
+# design-sync (staging de scripts, build output e estado de máquina)
+/.ds-sync
+/ds-bundle
+/.design-sync/.cache
+/.design-sync/learnings
+/.design-sync/node_modules

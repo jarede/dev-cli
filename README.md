@@ -68,6 +68,20 @@ Requer [Rust](https://rustup.rs/) — toolchain que suporte edition 2024.
 cargo install --git https://github.com/jarede/dev-cli
 ```
 
+### Subir o portal + API com um comando
+
+Depois de instalado, basta:
+
+    dev-server
+
+Backend e frontend sobem juntos em <http://127.0.0.1:8787> — o portal web
+vem embutido no binário. Sem config nenhuma na primeira execução: o banco
+SQLite é criado sozinho no diretório de dados do usuário
+(`~/.local/share/dev-cli/logs.db` no Linux, equivalente no macOS/Windows), e
+tudo é ajustável depois por `/etc/dev-cli/config.toml` ou variáveis
+`DEV_CLI_*`. Sem docker rodando, a API e o portal sobem mesmo assim — a
+coleta só começa quando o docker aparecer.
+
 ## ✨ Subcomandos
 
 | Comando | O que faz |

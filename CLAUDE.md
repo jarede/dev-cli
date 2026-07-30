@@ -31,6 +31,7 @@ cargo run -p dev-cli -- logs dashboard --ssh user@host   # idem, coletando via S
 cargo run -p dev-cli -- ai stats opencode   # dashboard de tokens/custo do OpenCode (heatmap + modelos)
 cargo run -p dev-cli -- ai stats claude     # horas trabalhadas + custo estimado do Claude Code (mês atual)
 cargo run -p servidor -- --db /tmp/dev.db   # dev-server: coleta + API JSON em 127.0.0.1:8787
+# release: `npm run build` + `cargo build --release` embute web/dist no dev-server (build.rs de crates/servidor); sem dist, o binário serve uma página explicativa
 cargo build --release       # binário em target/release/dev-cli
 cargo test --workspace      # roda a suíte inteira (crates/nucleo + crates/cli)
 cargo test contar           # roda testes cujo nome casa com "contar"

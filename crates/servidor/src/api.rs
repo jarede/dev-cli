@@ -290,7 +290,8 @@ mod tests {
     /// Serializa testes que mexem em `std::env::set_var` (global, thread-safe
     /// mas afeta todas as threads do processo). Cada teste de IA custos trava
     /// este mutex antes de tocar nas env vars.
-    static IA_CUSTOS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static IA_CUSTOS_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(()));
 
     /// Estado de teste: banco em memória com o schema criado.
     fn estado_teste() -> EstadoApi {
@@ -643,7 +644,7 @@ mod tests {
 
     #[tokio::test]
     async fn ia_custos_sem_banco_devolve_vazio() {
-        let _lock = IA_CUSTOS_LOCK.lock().unwrap();
+        let _lock = IA_CUSTOS_LOCK.lock().await;
         let caminho_falso = std::env::temp_dir().join("dev-cli-ia-test-que-nao-existe.db");
         unsafe { std::env::set_var("DEV_CLI_OPENCODE_DB", &caminho_falso) };
 
@@ -670,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn ia_custos_fonte_claude_calcula_custo_dos_transcritos() {
-        let _lock = IA_CUSTOS_LOCK.lock().unwrap();
+        let _lock = IA_CUSTOS_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let projeto_dir = dir.path().join("meu-projeto");
         std::fs::create_dir_all(&projeto_dir).unwrap();
@@ -707,7 +708,7 @@ mod tests {
 
     #[tokio::test]
     async fn ia_custos_fonte_invalida_devolve_400() {
-        let _lock = IA_CUSTOS_LOCK.lock().unwrap();
+        let _lock = IA_CUSTOS_LOCK.lock().await;
         let (status, _json) =
             get_json(criar_rotas(estado_teste()), "/api/ia/custos?fonte=invalida").await;
 

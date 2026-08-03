@@ -9,7 +9,9 @@
 // docs: https://docs.rs/include_dir/latest/include_dir/
 
 use axum::Router;
-use axum::http::{StatusCode, Uri, header};
+use axum::http::Uri;
+#[cfg(portal_embutido)]
+use axum::http::{StatusCode, header};
 #[cfg(not(portal_embutido))]
 use axum::response::Html;
 use axum::response::{IntoResponse, Response};

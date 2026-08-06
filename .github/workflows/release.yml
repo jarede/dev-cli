@@ -54,7 +54,7 @@ jobs:
       # O portal precisa existir em web/dist ANTES do cargo: o build.rs do
       # crate servidor detecta o dist e embute os assets no binário.
       - name: Instala Node e compila o portal
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm

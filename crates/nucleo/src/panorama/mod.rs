@@ -8,8 +8,8 @@
 //                       Nada de coleta nem I/O aqui.
 //   - módulos PURA (sem I/O, testáveis com strings inline): `segredos.rs`,
 //     `identidade.rs`, `proxy.rs`.
-//   - módulos de IO (recebem um `Executor`/config): `docker.rs`, `sistema.rs`,
-//     `gitlab.rs`.
+//   - módulos de IO (recebem um `Executor`/config): `docker.rs`, `sistema.rs`;
+//     `gitlab.rs` (API REST) já está implementado nesta branch.
 //
 // Cada novo módulo é adicionado aqui na sua própria issue. `ResultadoColeta`
 // mora neste arquivo porque é a linguagem comum entre os coletores e o
@@ -17,6 +17,7 @@
 
 use crate::panorama::snapshot::ErroColeta;
 
+pub mod gitlab;
 pub mod identidade;
 pub mod snapshot;
 

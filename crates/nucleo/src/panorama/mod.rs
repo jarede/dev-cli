@@ -17,6 +17,7 @@
 
 use crate::panorama::snapshot::ErroColeta;
 
+pub mod proxy;
 pub mod snapshot;
 
 /// Resultado de uma coleta.

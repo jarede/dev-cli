@@ -17,6 +17,7 @@
 
 use crate::panorama::snapshot::ErroColeta;
 
+pub mod segredos;
 pub mod sistema;
 pub mod snapshot;
 

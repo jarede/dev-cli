@@ -35,7 +35,7 @@ fn rotulo_erro(nome_host: &str) -> String {
 /// O executor devolve `Err` quando o host está inacessível — isso vira
 /// `ResultadoColeta::falha` (sem `dados`), em vez de um panic.
 pub fn coletar(executor: &Executor, nome_host: &str) -> ResultadoColeta<InfoHost> {
-    match executor.executar(&[COMANDO_SISTEMA]) {
+    match executor.executar_shell(COMANDO_SISTEMA) {
         Ok(saida) => parsear(&saida, nome_host),
         Err(erro) => {
             ResultadoColeta::falha(format!("host inacessível: {erro}"), rotulo_erro(nome_host))

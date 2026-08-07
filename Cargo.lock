@@ -1537,6 +1537,7 @@ dependencies = [
  "chrono",
  "dirs",
  "dotenvy",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

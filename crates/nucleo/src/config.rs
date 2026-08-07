@@ -46,6 +46,112 @@ pub struct Config {
     pub coleta: Coleta,
     pub limiares: Limiares,
     pub servidor: Servidor,
+    pub panorama: Panorama,
+}
+
+/// Configuração do módulo `panorama` (inventário de infraestrutura).
+///
+/// ```toml
+/// [panorama]
+/// diretorio_snapshots = "/var/lib/panorama/snapshots"
+/// dias_log = 9
+/// retencao_dias = 400
+///
+/// [[panorama.hosts]]
+/// nome = "app-01"
+/// acesso = "local"
+/// container_proxy = "proxy-1"
+///
+/// [[panorama.hosts]]
+/// nome = "app-02"
+/// acesso = "ssh"
+/// destino = "usuario@exemplo.interno"
+///
+/// [panorama.gitlab]
+/// host = "git.exemplo.interno"
+/// # o token NUNCA fica aqui — só em DEV_CLI_PANORAMA_GITLAB_TOKEN.
+/// ```
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Panorama {
+    /// Diretório onde os snapshots JSON são gravados.
+    pub diretorio_snapshots: String,
+    /// Janela de dias cobertos pelo log do proxy (driver json-file sem
+    /// rotação). Usado para dimensionar a coleta; a série mensal só existe
+    /// acumulando snapshots.
+    pub dias_log: u64,
+    /// Por quanto tempo (em dias) os snapshots antigos são mantidos.
+    pub retencao_dias: u64,
+    pub hosts: Vec<HostPanorama>,
+    pub gitlab: GitlabPanorama,
+}
+
+// `Default` manual (não derive): os padrões do projeto valem as regiões da
+// issue #24, e as partes que devem nascer vazias (hosts) claramente são vazias.
+impl Default for Panorama {
+    fn default() -> Self {
+        Self {
+            diretorio_snapshots: "/var/lib/panorama/snapshots".to_string(),
+            dias_log: 9,
+            retencao_dias: 400,
+            hosts: Vec::new(),
+            gitlab: GitlabPanorama::default(),
+        }
+    }
+}
+
+/// Um host da topologia. `nome` é um RÓTULO lógico (escolhido por quem
+/// configura) — é o que aparece no snapshot; o endereço real fica em
+/// `destino` e não precisa vazar para a apresentação.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct HostPanorama {
+    pub nome: String,
+    /// "local" (docker do host) ou "ssh" (host remoto).
+    pub acesso: String,
+    /// Endereço SSH ("usuario@host") — obrigatório quando `acesso = "ssh"`.
+    pub destino: Option<String>,
+    /// Nome do container do proxy reverso — só o host que roda o proxy tem.
+    pub container_proxy: Option<String>,
+}
+
+/// Instância GitLab self-hosted do inventário. O token vem APENAS da
+/// variável de ambiente `DEV_CLI_PANORAMA_GITLAB_TOKEN`, nunca do arquivo.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GitlabPanorama {
+    pub host: String,
+}
+
+impl Panorama {
+    /// Valida a configuração: host com `acesso = "ssh"` sem `destino` é erro
+    /// de configuração CLARO (não dá para colecionar de um endereço vazio).
+    pub fn validar(&self) -> Result<(), String> {
+        for host in &self.hosts {
+            match host.acesso.as_str() {
+                "local" => {}
+                "ssh" => {
+                    let tem_destino = host
+                        .destino
+                        .as_deref()
+                        .is_some_and(|destino| !destino.is_empty());
+                    if !tem_destino {
+                        return Err(format!(
+                            "host '{}': acesso \"ssh\" exige o campo 'destino'",
+                            host.nome
+                        ));
+                    }
+                }
+                outro => {
+                    return Err(format!(
+                        "host '{}': acesso desconhecido \"{outro}\" (use \"local\" ou \"ssh\")",
+                        host.nome
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Parâmetros da coleta de logs.
@@ -191,6 +297,17 @@ impl Config {
                 "DEV_CLI_SERVIDOR_BIND" => self.servidor.bind = valor,
                 "DEV_CLI_SERVIDOR_PORTAL_DIR" => self.servidor.portal_dir = valor,
                 "DEV_CLI_SERVIDOR_TESTES_DIR" => self.servidor.testes_dir = valor,
+                "DEV_CLI_PANORAMA_DIRETORIO_SNAPSHOTS" => self.panorama.diretorio_snapshots = valor,
+                "DEV_CLI_PANORAMA_DIAS_LOG" => {
+                    if let Ok(n) = valor.parse() {
+                        self.panorama.dias_log = n;
+                    }
+                }
+                "DEV_CLI_PANORAMA_RETENCAO_DIAS" => {
+                    if let Ok(n) = valor.parse() {
+                        self.panorama.retencao_dias = n;
+                    }
+                }
                 _ => {}
             }
         }
@@ -397,5 +514,83 @@ taxa_erro_pct = 1.0
         // Num ambiente com home resolvível (CI e dev), o caminho é absoluto —
         // o "." de fallback só aparece em ambientes sem diretório de dados.
         assert!(caminho.is_absolute() || caminho.starts_with("."));
+    }
+
+    #[test]
+    fn panorama_defaults_sao_os_da_issue() {
+        let p = Config::default().panorama;
+        assert_eq!(p.diretorio_snapshots, "/var/lib/panorama/snapshots");
+        assert_eq!(p.dias_log, 9);
+        assert_eq!(p.retencao_dias, 400);
+        assert!(p.hosts.is_empty());
+    }
+
+    #[test]
+    fn toml_parseia_hosts_do_panorama() {
+        let texto = r#"
+[panorama]
+diretorio_snapshots = "/tmp/snap"
+retencao_dias = 30
+
+[[panorama.hosts]]
+nome = "app-01"
+acesso = "local"
+container_proxy = "proxy-1"
+
+[[panorama.hosts]]
+nome = "app-02"
+acesso = "ssh"
+destino = "usuario@exemplo.interno"
+
+[panorama.gitlab]
+host = "git.exemplo.interno"
+"#;
+        let c = Config::de_toml(texto).unwrap();
+        assert_eq!(c.panorama.diretorio_snapshots, "/tmp/snap");
+        assert_eq!(c.panorama.retencao_dias, 30);
+        assert_eq!(c.panorama.hosts.len(), 2);
+        assert_eq!(c.panorama.hosts[0].nome, "app-01");
+        assert_eq!(
+            c.panorama.hosts[0].container_proxy.as_deref(),
+            Some("proxy-1")
+        );
+        assert_eq!(
+            c.panorama.hosts[1].destino.as_deref(),
+            Some("usuario@exemplo.interno")
+        );
+        assert_eq!(c.panorama.gitlab.host, "git.exemplo.interno");
+    }
+
+    #[test]
+    fn panorama_ssh_sem_destino_e_erro_de_config() {
+        let c =
+            Config::de_toml("[[panorama.hosts]]\nnome = \"app-02\"\nacesso = \"ssh\"\n").unwrap();
+        let erro = c.panorama.validar().unwrap_err();
+        assert!(erro.contains("destino"));
+    }
+
+    #[test]
+    fn panorama_acesso_desconhecido_e_erro() {
+        let c = Config::de_toml("[[panorama.hosts]]\nnome = \"x\"\nacesso = \"podman\"\n").unwrap();
+        assert!(c.panorama.validar().is_err());
+    }
+
+    #[test]
+    fn env_configura_panorama() {
+        let mut c = Config::default();
+        c.aplicar_env(vec![
+            (
+                "DEV_CLI_PANORAMA_DIRETORIO_SNAPSHOTS".to_string(),
+                "/tmp/meus-snap".to_string(),
+            ),
+            (
+                "DEV_CLI_PANORAMA_RETENCAO_DIAS".to_string(),
+                "60".to_string(),
+            ),
+        ]);
+        assert_eq!(c.panorama.diretorio_snapshots, "/tmp/meus-snap");
+        assert_eq!(c.panorama.retencao_dias, 60);
+        // dias_log continua no default (não foi tocado).
+        assert_eq!(c.panorama.dias_log, 9);
     }
 }

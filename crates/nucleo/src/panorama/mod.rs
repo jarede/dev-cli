@@ -19,7 +19,9 @@ use crate::panorama::snapshot::ErroColeta;
 
 pub mod docker;
 pub mod gitlab;
+pub mod gravacao;
 pub mod identidade;
+pub mod orquestrador;
 pub mod proxy;
 pub mod segredos;
 pub mod sistema;

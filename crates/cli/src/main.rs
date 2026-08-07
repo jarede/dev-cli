@@ -8,6 +8,7 @@ mod ai;
 mod cli;
 mod help;
 mod logs;
+mod panorama;
 mod screens;
 mod tui;
 

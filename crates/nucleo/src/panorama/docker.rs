@@ -454,7 +454,7 @@ mod tests {
     /// pedido. `falhar_*` permitem simular host inacessível e falha parcial.
     fn fake_executor(
         saidas: &'static [(&'static str, &'static str)],
-    ) -> impl FnMut(&[&str]) -> Result<String, String> + '_ {
+    ) -> impl FnMut(&[&str]) -> Result<String, String> {
         move |args: &[&str]| {
             for (prefixo, saida) in saidas {
                 if args.first().is_some_and(|primeiro| *primeiro == *prefixo) {

@@ -1,0 +1,52 @@
+# Unit systemd da coleta periódica do panorama (dev-cli, issue #25).
+# Instalada pelo deploy/instalar.sh em
+# /etc/systemd/system/panorama-coletar.service, junto do timer
+# panorama-coletar.timer (que dispara esta unit 4x ao dia).
+#
+# Por que existe: a fonte de volume é o log do proxy reverso, cujo driver
+# `json-file` não tem rotação — a janela é o uptime do container (~9 dias).
+# Leitura diária/semanal sai direto do log, mas a visão mensal só existe
+# ACUMULANDO snapshots. Sem esta coleta agendada, o histórico não passa
+# a existir.
+#
+# Modelo de segurança: a coleta roda como o usuário de sistema `dev-cli`,
+# SEM privilégios — o único poder extra é o grupo `docker` (necessário para
+# `docker ps`/`docker logs` falarem com /var/run/docker.sock no host local).
+
+[Unit]
+Description=panorama — coleta periódica de inventário como snapshot JSON (dev-cli)
+Documentation=https://github.com/jarede/dev-cli
+# Só roda depois da rede e do docker estarem de pé (o coletor fala com o
+# socket do Docker no host local e com os hosts remotos via SSH).
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+# oneshot: o processo coleta, grava o snapshot e SAI — quem agenda a
+# próxima execução é o timer, não um loop interno nem um restart.
+Type=oneshot
+User=dev-cli
+Group=dev-cli
+# O grupo docker entra como suplementar: o usuário continua "comum".
+SupplementaryGroups=docker
+# O token do GitLab NUNCA fica no config.toml (que pode vazar em backup ou
+# PR) — vem só do ambiente. O valor vazio aqui garante que a variável
+# exista mesmo sem o arquivo; o arquivo (opcional, ver abaixo) sobrescreve.
+Environment=DEV_CLI_PANORAMA_GITLAB_TOKEN=
+# O `-` ANTES do caminho é obrigatório: sem ele a unit FALHA na primeira
+# instalação, antes de /etc/dev-cli/panorama.env existir. Com o `-`, arquivo
+# ausente = segue com o ambiente vazio (coleta sem dados do GitLab).
+EnvironmentFile=-/etc/dev-cli/panorama.env
+ExecStart=/usr/local/bin/dev-cli panorama coletar --config /etc/dev-cli/config.toml
+
+# Endurecimento: sem escalada de privilégio, /tmp privado, /usr e /etc
+# read-only (ProtectSystem=strict), /home inacessível. O ÚNICO caminho de
+# escrita devolvido é o diretório de snapshots — é ele que o
+# `diretorio_snapshots` do config.toml precisa apontar (mudar um exige
+# mudar o outro, senão a coleta falha com erro de permissão que não parece
+# de permissão).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/panorama/snapshots

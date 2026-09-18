@@ -27,6 +27,7 @@ http-body-util = "0.1"
 dotenvy = "0.15"
 owo-colors = "4"
 ratatui = "0.30"
+regex = "1"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,6 +36,7 @@ toml = "1.1"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
+unicode-normalization = "0.1"
 tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

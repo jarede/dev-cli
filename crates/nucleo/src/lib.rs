@@ -17,4 +17,5 @@ pub mod executor;
 pub mod horas_sessao;
 pub mod ia_claude;
 pub mod metricas;
+pub mod panorama;
 pub mod testes;

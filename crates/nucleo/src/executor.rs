@@ -47,8 +47,40 @@ impl Executor {
     // docs: https://doc.rust-lang.org/std/process/struct.Command.html
     pub fn executar(&self, args_docker: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
         let (programa, args) = self.montar_comando(args_docker);
-        let saida = Command::new(&programa)
-            .args(&args)
+        Self::rodar(&programa, &args)
+    }
+
+    /// MONTAGEM PURO de um comando de shell NÃO-docker (ex.: a cadeia
+    /// `uname; cat /proc/meminfo; ...` do coletor de sistema). No modo local
+    /// dispara `sh -c <comando>`; no modo SSH o comando chega inteiro ao
+    /// shell remoto — é ele quem interpreta os `;`.
+    pub fn montar_shell(&self, comando: &str) -> (String, Vec<String>) {
+        match self {
+            Executor::Local => (
+                "sh".to_string(),
+                vec!["-c".to_string(), comando.to_string()],
+            ),
+            Executor::Ssh(host) => ("ssh".to_string(), vec![host.clone(), comando.to_string()]),
+        }
+    }
+
+    /// CASCA DE IO: executa um comando de shell arbitrário no host alvo.
+    /// Por que NÃO usar `executar`? Ele prefixa `docker` (Local) — e no modo
+    /// SSH envolve em `ssh host "docker ..."` —, certo para o comando docker,
+    /// mas `docker uname -sr` não existe. O coletor de sistema usa isso.
+    pub fn executar_shell(&self, comando: &str) -> Result<String, Box<dyn std::error::Error>> {
+        let (programa, args) = self.montar_shell(comando);
+        Self::rodar(&programa, &args)
+    }
+
+    /// CASCA DE IO compartilhada: dispara o processo, captura a saída e
+    /// devolve `stdout` + `stderr`. `from_utf8_lossy` troca bytes inválidos
+    /// por U+FFFD em vez de falhar — logs de container nem sempre são UTF-8
+    /// perfeito.
+    // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy
+    fn rodar(programa: &str, args: &[String]) -> Result<String, Box<dyn std::error::Error>> {
+        let saida = Command::new(programa)
+            .args(args)
             .output()
             .map_err(|erro| format!("falha ao executar {programa}: {erro}"))?;
 
@@ -61,9 +93,6 @@ impl Executor {
             .into());
         }
 
-        // `from_utf8_lossy` troca bytes inválidos por U+FFFD em vez de
-        // falhar — logs de container nem sempre são UTF-8 perfeito.
-        // docs: https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy
         let mut texto = String::from_utf8_lossy(&saida.stdout).to_string();
         texto.push_str(&String::from_utf8_lossy(&saida.stderr));
         Ok(texto)
@@ -168,5 +197,22 @@ mod tests {
         let lista = parsear_ps("\n\nsem-pipe\n'a|b|c'\n");
         assert_eq!(lista.len(), 1);
         assert_eq!(lista[0].nome, "a");
+    }
+
+    #[test]
+    fn monta_shell_local_usando_sh() {
+        let (prog, args) = Executor::Local.montar_shell("uname -sr; df -B1 /");
+        assert_eq!(prog, "sh");
+        assert_eq!(args, vec!["-c", "uname -sr; df -B1 /"]);
+    }
+
+    #[test]
+    fn monta_shell_ssh_envia_comando_inteiro() {
+        let exec = Executor::Ssh("dev@qa.exemplo.interno".to_string());
+        let (prog, args) = exec.montar_shell("uname -sr");
+        // O ssh recebe o comando inteiro como UMA string: é o shell remoto
+        // quem interpreta os `;` — não o ssh nem o host local.
+        assert_eq!(prog, "ssh");
+        assert_eq!(args, vec!["dev@qa.exemplo.interno", "uname -sr"]);
     }
 }

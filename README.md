@@ -100,7 +100,7 @@ Ambos os subcomandos de `ai stats` aceitam `--json` (saída estruturada em vez d
 cargo build
 cargo run -p dev-cli -- version
 cargo run -p dev-cli -- logs stats               # todos os containers
-cargo run -p dev-cli -- logs stats prezzo        # um container
+cargo run -p dev-cli -- logs stats acme        # um container
 cargo run -p dev-cli -- logs dashboard           # dashboard TUI ao vivo (docker local)
 cargo run -p dev-cli -- ai stats opencode        # dashboard de tokens/custo do OpenCode
 cargo run -p dev-cli -- ai stats claude          # horas + custo do mês atual
@@ -156,6 +156,43 @@ O serviço roda como o usuário de sistema `dev-cli` (sem privilégios, apenas
 membro do grupo `docker`), com config em `/etc/dev-cli/config.toml` e banco
 em `/var/lib/dev-cli/logs.db`. Tudo é configurável por TOML e variáveis
 `DEV_CLI_*` — veja `deploy/config.exemplo.toml`.
+
+### Coleta agendada do panorama (systemd timer)
+
+O `instalar.sh` instala também o timer `panorama-coletar`, que roda
+`dev-cli panorama coletar` **4x ao dia — 00, 06, 12 e 18h** (`deploy/panorama-coletar.timer`).
+Cada execução congela um snapshot JSON em `/var/lib/panorama/snapshots`.
+Por quê 4x ao dia: a fonte de volume é o log do proxy (`json-file` sem
+rotação, janela de ~9 dias) — a visão mensal só existe acumulando snapshots,
+então sem coleta agendada o histórico não passa a existir.
+
+Conferir a próxima execução e investigar uma coleta que não aconteceu:
+
+```bash
+systemctl list-timers panorama-coletar.timer   # próxima execução
+journalctl -u panorama-coletar                 # log da última coleta
+```
+
+O usuário de serviço `dev-cli` precisa de **três permissões**:
+
+1. acesso ao socket do Docker no host local (grupo `docker` — o
+   `instalar.sh` já resolve);
+2. **chave SSH sem passphrase** para os hosts remotos (`destino` no
+   `config.toml`);
+3. escrita no diretório de snapshots (`install -d -o dev-cli -g dev-cli
+   /var/lib/panorama/snapshots` — o `instalar.sh` já cria).
+
+Atenção ao endurecimento da unit (`ProtectHome=true`): o `/home` fica
+invisível para a coleta — inclusive um eventual `/home/dev-cli/.ssh`. Se a
+chave SSH do usuário de serviço morar no home, a coleta dos hosts remotos
+falha mesmo com a chave existindo. Prefira guardar a chave fora do home
+(ex.: `/etc/dev-cli/ssh/`, com leitura para o `dev-cli`) ou revise o
+endurecimento.
+
+Amarração que quebra sem parecer: `diretorio_snapshots` (no `config.toml`,
+default `/var/lib/panorama/snapshots`) ↔ `ReadWritePaths=/var/lib/panorama/snapshots`
+(na unit, que roda com `ProtectSystem=strict` — `/usr` e `/etc` read-only).
+Mudar um exige mudar o outro, senão a coleta falha com erro de permissão.
 
 ## 🧪 Testes
 

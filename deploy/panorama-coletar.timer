@@ -1,0 +1,26 @@
+# Timer systemd da coleta periódica do panorama (dev-cli, issue #25).
+# Instalado pelo deploy/instalar.sh em
+# /etc/systemd/system/panorama-coletar.timer. Dispara a unit
+# panorama-coletar.service 4x ao dia.
+
+[Unit]
+Description=panorama — agenda a coleta periódica de inventário (4x ao dia)
+Documentation=https://github.com/jarede/dev-cli
+
+[Timer]
+# 00, 06, 12 e 18h, todo dia. A cadência existe porque a janela do log do
+# proxy é curta (~9 dias): cada coleta congela o que o log ainda enxerga;
+# sem coletar todo dia, o passado se perde e a série mensal nunca se forma.
+OnCalendar=*-*-* 00,06,12,18:00:00
+# Recupera execução perdida por reboot/máquina desligada: se a máquina
+# estava fora do ar na hora cheia, a coleta roda assim que voltar. Sem
+# isso, um reboot na hora errada abre um BURACO PERMANENTE na série.
+Persistent=true
+# Atraso aleatório de até 5 min: evita que a coleta caia exatamente junto
+# com outras tarefas na hora cheia (thundering herd).
+RandomizedDelaySec=300
+
+[Install]
+# Timers são "serviços" do alvo timers.target (não multi-user.target como
+# serviços longos tipo o dev-server).
+WantedBy=timers.target

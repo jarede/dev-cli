@@ -19,6 +19,7 @@ use clap::Subcommand;
 
 use crate::ai::AiArgs;
 use crate::logs::LogsArgs;
+use crate::panorama::PanoramaArgs;
 
 /// Exibe a versão do dev-cli.
 // `#[derive(Args, Debug)]` numa struct SEM campos: o clap simplesmente não
@@ -57,6 +58,8 @@ pub enum Commands {
     Logs(LogsArgs),
     /// Comandos de IA (estatísticas de uso e custo).
     Ai(AiArgs),
+    /// Comandos de infraestrutura (panorama).
+    Panorama(PanoramaArgs),
 }
 
 impl Commands {
@@ -72,6 +75,7 @@ impl Commands {
             Commands::Version(args) => args.execute(),
             Commands::Logs(args) => args.execute(),
             Commands::Ai(args) => args.execute(),
+            Commands::Panorama(args) => args.execute(),
         }
     }
 }

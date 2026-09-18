@@ -435,9 +435,10 @@ mod tests {
             ));
         }
         // A rota /r24 é a mais requisitada: ganha a segunda ocorrência.
-        linhas.push(format!(
+        linhas.push(
             r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:32 +0000] "GET /r24 HTTP/1.1" 200 5126 "-" "-" "-""#
-        ));
+                .to_string(),
+        );
 
         let vhosts = agregar(linhas.iter().map(String::as_str));
         let rotas = &vhosts[0].rotas_top;

@@ -24,3 +24,45 @@ bind = "127.0.0.1:8787"
 # Build do portal web (Fase 3). Vazio = só a API. Na VM, copie o web/dist
 # para este diretório (ex.: rsync -av web/dist/ vm:/var/lib/dev-cli/portal/).
 portal_dir = ""
+
+[panorama]
+# Onde os snapshots JSON são gravados. É o MESMO caminho que a unit
+# panorama-coletar libera em ReadWritePaths (a unit roda com
+# ProtectSystem=strict, que deixa /usr e /etc read-only) — se mudar aqui,
+# mude lá também, senão a coleta falha com erro de permissão.
+diretorio_snapshots = "/var/lib/panorama/snapshots"
+# Janela de dias coberta pelo log do proxy. O proxy usa o driver json-file
+# SEM rotação, então a janela é o uptime do container (~9 dias, default 9).
+# É POR ISSO que a série mensal só existe acumulando snapshots: cada coleta
+# congela o que o log ainda enxerga; sem coletar todo dia, o passado se perde.
+dias_log = 9
+# Por quanto tempo (em dias) os snapshots antigos são mantidos. Default 400
+# (~13 meses): cobre a comparação ano contra ano do relatório mensal.
+retencao_dias = 400
+
+# Os dois hosts abaixo ficam ATIVOS de propósito, com endereços claramente
+# de exemplo (*.exemplo.interno não resolve em rede real). Quem instalar sem
+# editar vê a coleta FALHAR tentando alcançar esses hosts — barulho na hora,
+# em vez do defeito silencioso anterior (hosts vazio = snapshot vazio sem
+# nenhuma mensagem dizendo por quê). Troque pelos hosts reais antes de usar.
+# `nome` é RÓTULO LÓGICO: é o que aparece no snapshot e no relatório, não o
+# endereço. O endereço real fica em `destino` e não vaza para a apresentação.
+
+[[panorama.hosts]]
+nome = "app-01"
+acesso = "local"
+# Nome do container do proxy reverso neste host. Só o host que roda o proxy
+# tem esta chave; é dela que sai a leitura de volume (leitura diária/semanal).
+container_proxy = "proxy-1"
+
+[[panorama.hosts]]
+nome = "app-02"
+acesso = "ssh"
+# Endereço SSH ("usuario@host") — obrigatório quando acesso = "ssh".
+destino = "servico@host.exemplo.interno"
+
+[panorama.gitlab]
+host = "git.exemplo.interno"
+# O token NUNCA fica neste arquivo — só em DEV_CLI_PANORAMA_GITLAB_TOKEN
+# (lido do ambiente ou de /etc/dev-cli/panorama.env pelo systemd). Arquivo
+# de config pode vazar em backup ou em PR; variável de ambiente, não.

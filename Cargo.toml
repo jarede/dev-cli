@@ -9,7 +9,7 @@ members = ["crates/nucleo", "crates/cli", "crates/servidor"]
 # versão/edition em cada Cargo.toml).
 # docs: https://doc.rust-lang.org/cargo/reference/workspaces.html#the-package-table
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/jarede/dev-cli"

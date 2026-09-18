@@ -109,7 +109,7 @@ pub fn chave_canonica(nome: &str, email: &str, apelidos: &BTreeMap<String, Apeli
     }
 
     // 2. Local-part do e-mail, sem acento e mantendo só `[a-z.]`. Ex.:
-    // "12345+gabriel@users.noreply.github.com" vira "gabriel" — unificando
+    // "12345+bruno@users.noreply.github.com" vira "bruno" — unificando
     // com os demais e-mails do autor. Por isso a ARMADILHA do `eh_bot` é
     // crítica: esses usuários são PESSOAS.
     let local = remover_acento(email_min.split('@').next().unwrap_or_default());
@@ -235,7 +235,7 @@ mod tests {
     /// novo.
     #[test]
     fn email_de_privacidade_nao_e_bot() {
-        assert!(!eh_bot("Gabriel", "12345+gabriel@users.noreply.github.com"));
+        assert!(!eh_bot("Bruno", "12345+bruno@users.noreply.github.com"));
     }
 
     #[test]
@@ -271,9 +271,9 @@ mod tests {
     #[test]
     fn unifica_tres_emails_da_mesma_pessoa() {
         let contribuidores = [
-            contribuidor("J. Silva", "jsilva@exemplo.interno", 2),
-            contribuidor("Jarede F. Silva", "jsilva@exemplo.interno2", 5),
-            contribuidor("J. F. S.", "jsilva@outro.interno", 3),
+            contribuidor("A. Moreira", "amoreira@exemplo.interno", 2),
+            contribuidor("Ana Paula Moreira", "amoreira@exemplo.interno2", 5),
+            contribuidor("A. P. M.", "amoreira@outro.interno", 3),
         ];
         let autores = unificar_autores(&contribuidores, &apelidos_vazios());
         assert_eq!(autores.len(), 1);
@@ -281,9 +281,9 @@ mod tests {
         assert_eq!(
             autores[0].emails,
             vec![
-                "jsilva@exemplo.interno".to_string(),
-                "jsilva@exemplo.interno2".to_string(),
-                "jsilva@outro.interno".to_string(),
+                "amoreira@exemplo.interno".to_string(),
+                "amoreira@exemplo.interno2".to_string(),
+                "amoreira@outro.interno".to_string(),
             ],
         );
     }
@@ -317,33 +317,37 @@ mod tests {
     #[test]
     fn apelido_vence_nomes_do_git() {
         let apelidos = BTreeMap::from([(
-            "jsilva".to_string(),
+            "amoreira".to_string(),
             Apelido {
-                nome: Some("Jarede F. Silva".to_string()),
-                padroes: vec!["jsilva".to_string()],
+                nome: Some("Ana Paula Moreira".to_string()),
+                padroes: vec!["amoreira".to_string()],
             },
         )]);
         let contribuidores = [
-            contribuidor("Jose Silva Jarede Ferreira", "jsilva@exemplo.interno", 4),
-            contribuidor("J. F. S.", "jsilva@exemplo.interno2", 2),
+            contribuidor(
+                "Ana Moreira de Souza Ferreira",
+                "amoreira@exemplo.interno",
+                4,
+            ),
+            contribuidor("A. M.", "amoreira@exemplo.interno2", 2),
         ];
         let autores = unificar_autores(&contribuidores, &apelidos);
         assert_eq!(autores.len(), 1);
-        assert_eq!(autores[0].nome, "Jarede F. Silva");
+        assert_eq!(autores[0].nome, "Ana Paula Moreira");
         assert_eq!(autores[0].commits, 6);
     }
 
-    /// Sem apelido, o nome mais longo vence: "J. Silva" e "Jarede F. Silva"
+    /// Sem apelido, o nome mais longo vence: "A. Moreira" e "Ana Paula Moreira"
     /// são a mesma pessoa; o segundo é mais informativo.
     #[test]
     fn sem_apelido_vence_nome_mais_longo() {
         let contribuidores = [
-            contribuidor("J. Silva", "jsilva@exemplo.interno", 4),
-            contribuidor("Jarede F. Silva", "jsilva@exemplo.interno", 6),
+            contribuidor("A. Moreira", "amoreira@exemplo.interno", 4),
+            contribuidor("Ana Paula Moreira", "amoreira@exemplo.interno", 6),
         ];
         let autores = unificar_autores(&contribuidores, &apelidos_vazios());
         assert_eq!(autores.len(), 1);
-        assert_eq!(autores[0].nome, "Jarede F. Silva");
+        assert_eq!(autores[0].nome, "Ana Paula Moreira");
     }
 
     /// Percentuais de um caso conhecido (total 120): 100 -> 83, 15 -> 13,

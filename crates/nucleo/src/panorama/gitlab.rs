@@ -485,9 +485,9 @@ mod tests {
     #[test]
     fn tres_emails_do_mesmo_autor_viram_um_so() {
         let json = r#"[
-            {"name": "J. Silva", "email": "jsilva@exemplo.interno", "commits": 3},
-            {"name": "Jarede F. Silva", "email": "jsilva@exemplo.interno2", "commits": 5},
-            {"name": "J. F. S.", "email": "jsilva@outro.interno", "commits": 2}
+            {"name": "A. Moreira", "email": "amoreira@exemplo.interno", "commits": 3},
+            {"name": "Ana Paula Moreira", "email": "amoreira@exemplo.interno2", "commits": 5},
+            {"name": "A. P. M.", "email": "amoreira@outro.interno", "commits": 2}
         ]"#;
         let contribuidores = parsear_contribuidores(json).expect("parse contribuidores");
         let apelidos = BTreeMap::new();
@@ -499,7 +499,7 @@ mod tests {
         assert!(
             autores[0]
                 .emails
-                .contains(&"jsilva@exemplo.interno".to_string())
+                .contains(&"amoreira@exemplo.interno".to_string())
         );
     }
 

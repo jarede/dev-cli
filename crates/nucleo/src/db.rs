@@ -660,7 +660,7 @@ mod tests {
         armazenar_contagens(&conn, "app", &antigos, 10).unwrap();
 
         // Uma request 200 e uma 500 dentro da janela (linha Loguru real).
-        let linha = "2026-07-07 10:00:00.000 |INFO     | server:http_request:112 - [acme] GET 200 /api/x  0.150s [10.0.0.1] [curl]";
+        let linha = "2026-07-07 10:00:00.000 |INFO     | server:http_request:112 - [acme] GET 200 /api/x  0.150s [192.0.2.1] [curl]";
         let e200 = parse_loguru_line(linha).unwrap();
         let mut e500 = e200.clone();
         e500.status = 500;

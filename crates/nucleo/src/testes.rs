@@ -73,7 +73,7 @@ pub struct Suite {
     /// ID da suíte — igual ao nome do arquivo sem `.toml`. Validado em
     /// `Suite::com_id` (chamado tanto na criação quanto ao ler do disco).
     pub id: String,
-    /// Nome legível ("prezzo · recalcular preços") — pode ter acentos e
+    /// Nome legível ("acme · recalcular preços") — pode ter acentos e
     /// espaços, é só rótulo.
     pub nome: String,
     /// Timeout por etapa em segundos. Cada etapa que demorar mais é
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn id_valido_aceita_apenas_caracteres_seguros() {
-        assert!(id_valido("prezzo-recalcular"));
+        assert!(id_valido("acme-recalcular"));
         assert!(id_valido("qa_2024_07_15"));
         assert!(id_valido("abc123"));
         assert!(!id_valido("")); // vazio
@@ -574,8 +574,8 @@ mod tests {
     #[test]
     fn parse_toml_minimo() {
         let texto = r#"
-id = "prezzo"
-nome = "prezzo · recalcular"
+id = "acme"
+nome = "acme · recalcular"
 timeout_etapa_seg = 10
 
 [[passos]]
@@ -588,8 +588,8 @@ cmd = "echo oi"
 esperado = "oi"
 "#;
         let s = parsear_suite_toml(texto).unwrap();
-        assert_eq!(s.id, "prezzo");
-        assert_eq!(s.nome, "prezzo · recalcular");
+        assert_eq!(s.id, "acme");
+        assert_eq!(s.nome, "acme · recalcular");
         assert_eq!(s.timeout_etapa_seg, 10);
         assert_eq!(s.passos.len(), 2);
         assert_eq!(s.passos[0].tipo, TipoPasso::Exec);

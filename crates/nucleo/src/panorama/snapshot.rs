@@ -228,7 +228,7 @@ mod tests {
                         erros_5xx: 0,
                     },
                 ],
-                maquinas: vec!["10.1.30.44".to_string()],
+                maquinas: vec!["192.0.2.44".to_string()],
                 rotas_top: vec![
                     RotaContagem {
                         rota: "/pedidos".to_string(),
@@ -247,9 +247,9 @@ mod tests {
                 ultima_atividade: "2026-08-07T10:00:00Z".to_string(),
                 commits: 120,
                 autores: vec![Autor {
-                    nome: "Jarede F. Silva".to_string(),
+                    nome: "Ana Paula Moreira".to_string(),
                     commits: 100,
-                    emails: vec!["j.silva@exemplo.interno".to_string()],
+                    emails: vec!["a.moreira@exemplo.interno".to_string()],
                     percentual: 83,
                 }],
                 branches: BTreeMap::from([

@@ -293,7 +293,7 @@ mod tests {
 
     /// Linha bem formada, sem prefixo — base dos demais testes.
     fn linha_valida() -> &'static str {
-        r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos?id=9 HTTP/1.1" 200 5120 "-" "Mozilla/5.0 (X11; Linux)" "172.20.0.7:8000""#
+        r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos?id=9 HTTP/1.1" 200 5120 "-" "Mozilla/5.0 (X11; Linux)" "203.0.113.7:8000""#
     }
 
     /// Acceptance: linha bem formada produz `Requisicao` com todos os
@@ -303,7 +303,7 @@ mod tests {
     fn linha_bem_formada_parseia_todos_os_campos() {
         let requisicao = analisar_linha(linha_valida()).expect("linha válida");
         assert_eq!(requisicao.vhost, "app.exemplo.interno");
-        assert_eq!(requisicao.ip, "10.1.30.44");
+        assert_eq!(requisicao.ip, "192.0.2.44");
         assert_eq!(requisicao.data, "2026-08-07");
         assert_eq!(requisicao.rota, "/pedidos");
         assert_eq!(requisicao.status, 200);
@@ -326,11 +326,11 @@ mod tests {
         assert!(analisar_linha("   ").is_none());
 
         // Truncada no meio: falta o campo de bytes após o status.
-        let truncada = r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos HTTP/1.1" 200"#;
+        let truncada = r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos HTTP/1.1" 200"#;
         assert!(analisar_linha(truncada).is_none());
 
         // Truncada dentro do bloco entre aspas (sem aspas de fechamento).
-        let truncada = r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos HTTP/1"#;
+        let truncada = r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos HTTP/1"#;
         assert!(analisar_linha(truncada).is_none());
 
         // Linha de log de erro do próprio proxy, não uma requisição.
@@ -338,11 +338,11 @@ mod tests {
         assert!(analisar_linha(erro_proxy).is_none());
 
         // Status não numérico.
-        let status_invalido = r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "GET /x HTTP/1.1" duzentos 5126 "-" "-" "-""#;
+        let status_invalido = r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "GET /x HTTP/1.1" duzentos 5126 "-" "-" "-""#;
         assert!(analisar_linha(status_invalido).is_none());
 
         // Mês desconhecido descarta a linha.
-        let mes_invalido = r#"app.exemplo.interno 10.1.30.44 - - [07/XYZ/2026:14:22:31 +0000] "GET /x HTTP/1.1" 200 5126 "-" "-" "-""#;
+        let mes_invalido = r#"app.exemplo.interno 192.0.2.44 - - [07/XYZ/2026:14:22:31 +0000] "GET /x HTTP/1.1" 200 5126 "-" "-" "-""#;
         assert!(analisar_linha(mes_invalido).is_none());
     }
 
@@ -351,7 +351,7 @@ mod tests {
     /// requisição), nunca pela última aspa da linha.
     #[test]
     fn aspas_no_user_agent_nao_corrompem_status_nem_rota() {
-        let linha = r#"api.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "POST /api/v1/dados HTTP/1.1" 201 128 "-" "Mozilla/5.0 "evil"; DROP TABLE" "172.20.0.7:8000""#;
+        let linha = r#"api.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "POST /api/v1/dados HTTP/1.1" 201 128 "-" "Mozilla/5.0 "evil"; DROP TABLE" "203.0.113.7:8000""#;
         let requisicao = analisar_linha(linha).expect("aspas no user-agent");
         assert_eq!(requisicao.status, 201);
         assert_eq!(requisicao.rota, "/api/v1/dados");
@@ -362,8 +362,8 @@ mod tests {
     #[test]
     fn query_string_nao_faz_parte_da_rota() {
         let linhas = [
-            r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos?id=9 HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:32 +0000] "GET /pedidos?id=10 HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "GET /pedidos?id=9 HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:32 +0000] "GET /pedidos?id=10 HTTP/1.1" 200 5126 "-" "-" "-""#,
         ];
         let vhosts = agregar(linhas.into_iter());
         let vhost = &vhosts[0];
@@ -383,10 +383,10 @@ mod tests {
     #[test]
     fn serie_diaria_ordenada_com_totais_corretos() {
         let linhas = [
-            r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:10:00:00 +0000] "GET /home HTTP/1.1" 500 5126 "-" "-" "-""#,
-            r#"app.exemplo.interno 10.1.30.44 - - [05/Aug/2026:09:00:00 +0000] "GET /home HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"app.exemplo.interno 10.1.30.44 - - [06/Aug/2026:11:00:00 +0000] "GET /contato HTTP/1.1" 404 5126 "-" "-" "-""#,
-            r#"app.exemplo.interno 10.1.30.44 - - [05/Aug/2026:10:00:00 +0000] "GET /sobre HTTP/1.1" 403 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:10:00:00 +0000] "GET /home HTTP/1.1" 500 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [05/Aug/2026:09:00:00 +0000] "GET /home HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [06/Aug/2026:11:00:00 +0000] "GET /contato HTTP/1.1" 404 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [05/Aug/2026:10:00:00 +0000] "GET /sobre HTTP/1.1" 403 5126 "-" "-" "-""#,
         ];
         let vhosts = agregar(linhas.into_iter());
         let vhost = &vhosts[0];
@@ -411,15 +411,15 @@ mod tests {
     #[test]
     fn maquinas_sem_repeticao_e_ordenadas() {
         let linhas = [
-            r#"app.exemplo.interno 172.20.0.7 - - [05/Aug/2026:09:00:00 +0000] "GET /a HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"app.exemplo.interno 10.2.0.10 - - [05/Aug/2026:09:00:01 +0000] "GET /b HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"app.exemplo.interno 10.1.30.44 - - [05/Aug/2026:09:00:02 +0000] "GET /c HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"app.exemplo.internal 10.2.0.10 - - [05/Aug/2026:09:00:03 +0000] "GET /d HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 203.0.113.7 - - [05/Aug/2026:09:00:00 +0000] "GET /a HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 198.51.100.10 - - [05/Aug/2026:09:00:01 +0000] "GET /b HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.interno 192.0.2.44 - - [05/Aug/2026:09:00:02 +0000] "GET /c HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"app.exemplo.internal 198.51.100.10 - - [05/Aug/2026:09:00:03 +0000] "GET /d HTTP/1.1" 200 5126 "-" "-" "-""#,
         ];
         let vhosts = agregar(linhas.into_iter());
         assert_eq!(
             vhosts[0].maquinas,
-            ["10.1.30.44", "10.2.0.10", "172.20.0.7"].map(str::to_string)
+            ["192.0.2.44", "198.51.100.10", "203.0.113.7"].map(str::to_string)
         );
     }
 
@@ -431,12 +431,12 @@ mod tests {
         let mut linhas: Vec<String> = Vec::new();
         for i in 0..25 {
             linhas.push(format!(
-                r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:31 +0000] "GET /r{i:02} HTTP/1.1" 200 5126 "-" "-" "-""#
+                r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:31 +0000] "GET /r{i:02} HTTP/1.1" 200 5126 "-" "-" "-""#
             ));
         }
         // A rota /r24 é a mais requisitada: ganha a segunda ocorrência.
         linhas.push(
-            r#"app.exemplo.interno 10.1.30.44 - - [07/Aug/2026:14:22:32 +0000] "GET /r24 HTTP/1.1" 200 5126 "-" "-" "-""#
+            r#"app.exemplo.interno 192.0.2.44 - - [07/Aug/2026:14:22:32 +0000] "GET /r24 HTTP/1.1" 200 5126 "-" "-" "-""#
                 .to_string(),
         );
 
@@ -473,10 +473,10 @@ mod tests {
     #[test]
     fn vhosts_ordenados_por_volume_decrescente() {
         let linhas = [
-            r#"pouco.exemplo.interno 10.1.30.44 - - [05/Aug/2026:09:00:00 +0000] "GET /a HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"muito.exemplo.interno 10.1.30.44 - - [05/Aug/2026:09:00:00 +0000] "GET /a HTTP/1.1" 200 5126 "-" "-" "-""#,
-            r#"muito.exemplo.interno 10.1.30.44 - - [05/Aug/2026:09:00:01 +0000] "GET /b HTTP/1.1" 404 5126 "-" "-" "-""#,
-            r#"muito.exemplo.interno 10.1.30.44 - - [05/Aug/2026:09:00:02 +0000] "GET /c HTTP/1.1" 500 5126 "-" "-" "-""#,
+            r#"pouco.exemplo.interno 192.0.2.44 - - [05/Aug/2026:09:00:00 +0000] "GET /a HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"muito.exemplo.interno 192.0.2.44 - - [05/Aug/2026:09:00:00 +0000] "GET /a HTTP/1.1" 200 5126 "-" "-" "-""#,
+            r#"muito.exemplo.interno 192.0.2.44 - - [05/Aug/2026:09:00:01 +0000] "GET /b HTTP/1.1" 404 5126 "-" "-" "-""#,
+            r#"muito.exemplo.interno 192.0.2.44 - - [05/Aug/2026:09:00:02 +0000] "GET /c HTTP/1.1" 500 5126 "-" "-" "-""#,
         ];
         let vhosts = agregar(linhas.into_iter());
 

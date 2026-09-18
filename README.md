@@ -100,7 +100,7 @@ Ambos os subcomandos de `ai stats` aceitam `--json` (saída estruturada em vez d
 cargo build
 cargo run -p dev-cli -- version
 cargo run -p dev-cli -- logs stats               # todos os containers
-cargo run -p dev-cli -- logs stats prezzo        # um container
+cargo run -p dev-cli -- logs stats acme        # um container
 cargo run -p dev-cli -- logs dashboard           # dashboard TUI ao vivo (docker local)
 cargo run -p dev-cli -- ai stats opencode        # dashboard de tokens/custo do OpenCode
 cargo run -p dev-cli -- ai stats claude          # horas + custo do mês atual

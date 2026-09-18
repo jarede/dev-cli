@@ -521,7 +521,7 @@ linha de continuação sem timestamp nem nível";
 
     #[test]
     fn detecta_uvicorn_access_log() {
-        let linha = "       INFO   3.215.127.148:32777 - \"POST /ttc/est HTTP/1.1\" 200";
+        let linha = "       INFO   192.0.2.148:32777 - \"POST /ttc/est HTTP/1.1\" 200";
         assert_eq!(detectar_app(linha), AppType::Uvicorn);
     }
 
@@ -608,19 +608,19 @@ linha de continuação sem timestamp nem nível";
 
     #[test]
     fn parse_loguru_linha_completa() {
-        let linha = "2026-07-07 14:09:08.185 |INFO     |server.py:server:http_request:112 - [tlantic] POST 200 /ttc/est  0.00485s [3.215.127.148] [Go-http-client/1.1]";
+        let linha = "2026-07-07 14:09:08.185 |INFO     |server.py:server:http_request:112 - [acme] POST 200 /ttc/est  0.00485s [192.0.2.148] [Go-http-client/1.1]";
         let e = parse_loguru_line(linha).unwrap();
         assert_eq!(e.timestamp, "2026-07-07 14:09:08.185");
         assert_eq!(e.level, "INFO");
         assert_eq!(e.modulo, "server.py:server");
         assert_eq!(e.funcao, "http_request");
         assert_eq!(e.linha_numero, 112);
-        assert_eq!(e.tenant, "tlantic");
+        assert_eq!(e.tenant, "acme");
         assert_eq!(e.metodo, "POST");
         assert_eq!(e.status, 200);
         assert_eq!(e.path, "/ttc/est");
         assert!((e.duracao_seg - 0.00485).abs() < 1e-6);
-        assert_eq!(e.client_ip, "3.215.127.148");
+        assert_eq!(e.client_ip, "192.0.2.148");
         assert_eq!(e.user_agent, "Go-http-client/1.1");
     }
 
@@ -657,7 +657,7 @@ linha de continuação sem timestamp nem nível";
 
     #[test]
     fn parse_loguru_linha_com_correlation_id_e_request() {
-        let linha = "2026-07-07 14:09:08.185 |INFO     | abc-123 |server.py:server:http_request:112 - [tlantic] POST 200 /ttc/est  0.00485s [3.215.127.148] [Go-http-client/1.1]";
+        let linha = "2026-07-07 14:09:08.185 |INFO     | abc-123 |server.py:server:http_request:112 - [acme] POST 200 /ttc/est  0.00485s [192.0.2.148] [Go-http-client/1.1]";
         let e = parse_loguru_line(linha).unwrap();
         assert_eq!(e.timestamp, "2026-07-07 14:09:08.185");
         assert_eq!(e.level, "INFO");
@@ -667,7 +667,7 @@ linha de continuação sem timestamp nem nível";
     }
 
     #[test]
-    fn contar_niveis_docker_qa_prezzo() {
+    fn contar_niveis_docker_qa_acme() {
         let conteudo = "\
 2026-07-07 17:10:08.651 |INFO    | - |droide.py:controllers.droide:executar:226 - encerrou
 2026-07-07 17:10:13.967 |DEBUG   | - |elefante.py:elefante:<module>:62 - debug msg";
@@ -679,7 +679,7 @@ linha de continuação sem timestamp nem nível";
 
     #[test]
     fn format_loguru_produz_string_compacta() {
-        let linha = "2026-07-07 14:09:08.185 |INFO     |server:http_request:112 - [tlantic] POST 200 /ttc/est  0.00485s [3.215.127.148] [Go-http-client/1.1]";
+        let linha = "2026-07-07 14:09:08.185 |INFO     |server:http_request:112 - [acme] POST 200 /ttc/est  0.00485s [192.0.2.148] [Go-http-client/1.1]";
         let e = parse_loguru_line(linha).unwrap();
         let saida = format_loguru_entry(&e);
         assert!(saida.starts_with("2026-07-07 14:09:08"));

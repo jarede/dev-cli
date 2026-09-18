@@ -5,7 +5,7 @@
 // JSON truncado. O padrão é: escrever num `.tmp`, `sync` do arquivo e
 // `rename` para o nome final — o rename é atômico dentro do mesmo filesystem.
 //
-// A idade de um snapshot sai do NOME do arquivo (granularidade de hora),
+// A idade de um snapshot sai do NOME do arquivo (precisão de segundo),
 // jamais do mtime: mtime muda com cópia e backup.
 
 use std::fs;
@@ -17,17 +17,23 @@ use std::path::{Path, PathBuf};
 
 use chrono::{NaiveDate, NaiveDateTime};
 
-/// Nome do arquivo a partir de um `coletado_em` ISO ("2026-08-07T14:00:00"),
-/// com GRANULARIDADE DE HORA: "2026-08-07T14.json". Ordem lexicográfica =
-/// ordem cronológica, então "o mais recente" é o último da lista ordenada.
-/// Devolve `None` quando o texto não tem o prefixo esperado.
+/// Nome do arquivo a partir de um `coletado_em` ISO ("2026-09-18T19:22:37"):
+/// "panorama_snapshot_20260918_192237.json" (prefixo fixo + `yyyymmdd_hhmmss`).
+/// Precisão de segundo: cada coleta gera um arquivo próprio, sem sobrescrever
+/// a anterior. Ordem lexicográfica = ordem cronológica, então "o mais recente"
+/// é o último da lista ordenada. Devolve `None` quando o texto não é um ISO
+/// válido — em vez de gerar um arquivo com carimbo mentiroso.
 pub fn nome_arquivo(coletado_em: &str) -> Option<String> {
-    // Os 13 primeiros caracteres de "YYYY-MM-DDTHH:MM:SS" são "YYYY-MM-DDTHH".
-    if coletado_em.len() < 13 {
-        return None;
-    }
-    // `into()` converte o corte em String heap -> compõe o nome completo.
-    Some(format!("{}.json", &coletado_em[..13],))
+    // `parse_from_str` valida de verdade (mês 13 ou hora 25 dão `Err`); o
+    // `format` seguinte só reordena os campos já validados para o padrão
+    // compacto do nome.
+    // docs: https://docs.rs/chrono/latest/chrono/naive/struct.NaiveDateTime.html#method.parse_from_str
+    let instante = NaiveDateTime::parse_from_str(coletado_em, "%Y-%m-%dT%H:%M:%S").ok()?;
+    Some(
+        instante
+            .format("panorama_snapshot_%Y%m%d_%H%M%S.json")
+            .to_string(),
+    )
 }
 
 /// Grava o conteúdo num arquivo temporário, sincroniza e renomeia para o
@@ -84,14 +90,18 @@ pub fn gravar_atomico(
     Ok(caminho_final)
 }
 
-/// Lê o `NaiveDateTime` embutido no nome "YYYY-MM-DDTHH.json". Nomes fora do
-/// padrão devolvem `None` — e por isso são IGNORADOS pela retenção, nunca
-/// apagados.
+/// Lê o `NaiveDateTime` embutido no nome "panorama_snapshot_20260807_140000.json".
+/// Nomes fora do padrão devolvem `None` — e por isso são IGNORADOS pela
+/// retenção, nunca apagados.
 fn data_do_nome(nome: &str) -> Option<NaiveDateTime> {
     let sem_extensao = nome.strip_suffix(".json")?;
-    // O nome é "YYYY-MM-DDTHH": separa data ("YYYY-MM-DD") e hora ("HH").
-    // Um nome como "2026-08-07T10:45:00.json" cai fora — hora não é um inteiro
-    // de 1 dígito — e devolve None, então a retenção o ignora, não apaga.
+    // Formato atual: prefixo fixo + carimbo compacto `yyyymmdd_hhmmss`.
+    if let Some(carimbo) = sem_extensao.strip_prefix("panorama_snapshot_") {
+        return NaiveDateTime::parse_from_str(carimbo, "%Y%m%d_%H%M%S").ok();
+    }
+    // Legado ("2026-08-07T14", granularidade de hora): ainda entendido para a
+    // retenção continuar limpando arquivos gravados antes da renomeação — sem
+    // isso eles virariam órfãos no diretório para sempre.
     let (dia, hora) = sem_extensao.split_once('T')?;
     let data = NaiveDate::parse_from_str(dia, "%Y-%m-%d").ok()?;
     let hora: u32 = hora.parse().ok()?;
@@ -148,24 +158,30 @@ mod tests {
     #[test]
     fn nome_arquivo_deriva_do_coletado_em() {
         assert_eq!(
-            nome_arquivo("2026-08-07T14:00:00").as_deref(),
-            Some("2026-08-07T14.json")
+            nome_arquivo("2026-09-18T19:22:37").as_deref(),
+            Some("panorama_snapshot_20260918_192237.json")
         );
-        // Qualquer minuto/segundo do mesmo hora cai no MESMO arquivo.
+        // Precisão de segundo: coletas distintas geram arquivos distintos.
         assert_eq!(
-            nome_arquivo("2026-08-07T14:59:59").as_deref(),
-            Some("2026-08-07T14.json")
+            nome_arquivo("2026-09-18T19:22:38").as_deref(),
+            Some("panorama_snapshot_20260918_192238.json")
         );
-        // Texto curto demais: não há hora para nomear.
+        // Texto fora do ISO (ou curto demais): sem nome, em vez de um
+        // arquivo com carimbo mentiroso.
         assert_eq!(nome_arquivo("2026-08-07"), None);
+        assert_eq!(nome_arquivo("gibberish"), None);
     }
 
     #[test]
     fn grava_atomico_cria_o_arquivo_sem_tmp_residual() {
         let diretorio = tempfile::tempdir().expect("tempdir do teste");
 
-        let caminho = gravar_atomico(diretorio.path(), "2026-08-07T14.json", "{\"versao\":1}")
-            .expect("gravação atômica");
+        let caminho = gravar_atomico(
+            diretorio.path(),
+            "panorama_snapshot_20260807_140000.json",
+            "{\"versao\":1}",
+        )
+        .expect("gravação atômica");
 
         // Conteúdo completo e nenhum `.tmp` sobrou no diretório.
         let texto = std::fs::read_to_string(&caminho).unwrap();
@@ -181,7 +197,12 @@ mod tests {
     fn gravar_atomico_cria_o_diretorio_se_ausente() {
         let raiz = tempfile::tempdir().unwrap();
         let subdir = raiz.path().join("um").join("dois");
-        let caminho = gravar_atomico(&subdir, "2026-08-07T14.json", "{\"a\":1}").unwrap();
+        let caminho = gravar_atomico(
+            &subdir,
+            "panorama_snapshot_20260807_140000.json",
+            "{\"a\":1}",
+        )
+        .unwrap();
         assert!(caminho.is_file());
     }
 
@@ -191,29 +212,63 @@ mod tests {
         let agora = "2026-08-07T12:00:00";
 
         // Um snapshot de ontem (deve sumir) e um de hoje (deve ficar).
-        fs::write(diretorio.path().join("2026-08-06T10.json"), "{}").unwrap();
-        fs::write(diretorio.path().join("2026-08-07T10.json"), "{}").unwrap();
+        fs::write(
+            diretorio
+                .path()
+                .join("panorama_snapshot_20260806_100000.json"),
+            "{}",
+        )
+        .unwrap();
+        fs::write(
+            diretorio
+                .path()
+                .join("panorama_snapshot_20260807_100000.json"),
+            "{}",
+        )
+        .unwrap();
         // Fora do padrão: ignorado, NUNCA apagado.
         fs::write(diretorio.path().join("notas.txt"), "não sou snapshot").unwrap();
-        fs::write(diretorio.path().join("2026-08-07T10:45:00.json"), "sub-est").unwrap();
+        fs::write(diretorio.path().join("2026-08-07.json"), "sem carimbo").unwrap();
 
         let removidos = aplicar_retencao(diretorio.path(), 1, agora).unwrap();
-        assert_eq!(removidos, vec!["2026-08-06T10.json".to_string()]);
+        assert_eq!(
+            removidos,
+            vec!["panorama_snapshot_20260806_100000.json".to_string()]
+        );
 
         let restantes: Vec<_> = std::fs::read_dir(diretorio.path())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert!(restantes.contains(&"2026-08-07T10.json".to_string()));
+        assert!(restantes.contains(&"panorama_snapshot_20260807_100000.json".to_string()));
         assert!(restantes.contains(&"notas.txt".to_string()));
-        assert!(restantes.contains(&"2026-08-07T10:45:00.json".to_string()));
+        assert!(restantes.contains(&"2026-08-07.json".to_string()));
+    }
+
+    #[test]
+    fn retencao_entende_nome_legado() {
+        // Arquivos gravados antes da renomeação ("2026-08-06T10.json")
+        // continuam sendo limpos pela retenção em vez de virarem órfãos.
+        let diretorio = tempfile::tempdir().unwrap();
+        fs::write(diretorio.path().join("2026-08-06T10.json"), "{}").unwrap();
+        let removidos = aplicar_retencao(diretorio.path(), 1, "2026-08-07T12:00:00").unwrap();
+        assert_eq!(removidos, vec!["2026-08-06T10.json".to_string()]);
     }
 
     #[test]
     fn retencao_zero_remove_tudo_do_padrao() {
         let diretorio = tempfile::tempdir().unwrap();
-        fs::write(diretorio.path().join("2026-08-07T04.json"), "{}").unwrap();
+        fs::write(
+            diretorio
+                .path()
+                .join("panorama_snapshot_20260807_040000.json"),
+            "{}",
+        )
+        .unwrap();
         let removidos = aplicar_retencao(diretorio.path(), 0, "2026-08-07T05:00:00").unwrap();
-        assert_eq!(removidos, vec!["2026-08-07T04.json".to_string()]);
+        assert_eq!(
+            removidos,
+            vec!["panorama_snapshot_20260807_040000.json".to_string()]
+        );
     }
 }

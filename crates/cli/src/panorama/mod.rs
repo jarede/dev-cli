@@ -64,9 +64,9 @@ fn gravar_com_retencao(
     retencao_dias: u64,
 ) -> Result<(PathBuf, Vec<String>), Box<dyn std::error::Error>> {
     // Sem `coletado_em` válido para nomear o arquivo, não há como gravar —
-    // o nome usa o prefixo ISO (granularidade de hora) como identidade.
+    // o nome usa o carimbo `yyyymmdd_hhmmss` (precisão de segundo) como identidade.
     let nome = nome_arquivo(&snapshot.coletado_em)
-        .ok_or("coletado_em fora do formato esperado (YYYY-MM-DDTHH...)")?;
+        .ok_or("coletado_em fora do formato esperado (YYYY-MM-DDTHH:MM:SS)")?;
     let json = serde_json::to_string_pretty(snapshot)?;
     let caminho = gravar_atomico(diretorio, &nome, &json)?;
     // Os erros do snapshot não param aqui: o arquivo a ser gravado é o do

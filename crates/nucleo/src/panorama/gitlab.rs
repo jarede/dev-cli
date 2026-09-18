@@ -120,9 +120,10 @@ fn url_base(host: &str) -> String {
 /// um token assim não pode ir num header, então é erro, não silêncio.
 fn cabecalhos_gitlab(token: &str) -> Result<HeaderMap, String> {
     let mut cabecalhos = HeaderMap::new();
-    // `HeaderName::from_static` é infalível para uma string ASCII fixa como
-    // um literal — não retorna `Result` (diferente de `HeaderValue`).
-    let nome = HeaderName::from_static("PRIVATE-TOKEN");
+    // `HeaderName::from_static` exige ASCII minúsculo (maiúsculas dão panic)
+    // — por isso "private-token" em vez de "PRIVATE-TOKEN" (HTTP é
+    // case-insensitive, então o servidor lê igual).
+    let nome = HeaderName::from_static("private-token");
     let valor = HeaderValue::from_str(token)
         .map_err(|erro| format!("token inválido para o header HTTP: {erro}"))?;
     cabecalhos.insert(nome, valor);

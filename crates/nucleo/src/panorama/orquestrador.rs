@@ -23,7 +23,8 @@ use crate::panorama::snapshot::{
 use crate::panorama::{ResultadoColeta, docker, proxy};
 
 /// Instante da coleta em ISO 8601 sem fuso, precisão de segundo — o mesmo
-/// valor que nomeia o arquivo (granularidade de hora) e calcula a retenção.
+/// valor que nomeia o arquivo (`panorama_snapshot_yyyymmdd_hhmmss.json`)
+/// e calcula a retenção.
 fn agora_iso() -> String {
     chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }

@@ -23,7 +23,9 @@ pub const MARCADOR: &str = "---";
 /// Tudo em UMA linha: `uname -sr`, `/proc/uptime`, `/proc/meminfo`,
 /// `/proc/loadavg` e `df -B1 /`, encadeados por `;` e separados por
 /// `echo '---'` (o marcador). Um único `executar` = uma única conexão.
-pub const COMANDO_SISTEMA: &str = "uname -sr; echo '---'; cat /proc/uptime; echo '---'; cat /proc/meminfo; echo '---'; cat /proc/loadavg; echo '---'; df -B1 /";
+/// `LC_ALL=C` no `df`: o cabeçalho é localizado ("Filesystem" em inglês,
+/// "Sist. Arq." em pt-br) e o parser não deve depender do idioma.
+pub const COMANDO_SISTEMA: &str = "uname -sr; echo '---'; cat /proc/uptime; echo '---'; cat /proc/meminfo; echo '---'; cat /proc/loadavg; echo '---'; LC_ALL=C df -B1 /";
 
 /// Rótulo de proveniência dos `ErroColeta` criados por este coletor.
 fn rotulo_erro(nome_host: &str) -> String {
@@ -212,25 +214,37 @@ fn parsear_carga(saida: &str) -> Result<(f64, f64, f64), String> {
     Ok((c_1m, c_5m, c_15m))
 }
 
-/// `df -B1 /` já vem em bytes; pula o cabeçalho e lê total + usado.
+/// `df -B1 /` já vem em bytes; lê a linha montada em `/` (total + usado).
+/// A linha é localizada pelo ponto de montagem (`/` na última coluna), NÃO
+/// pelo cabeçalho — que muda com o idioma ("Filesystem" em inglês,
+/// "Sist. Arq." em pt-br). Linha quebrada em duas (nome longo do dispositivo
+/// numa linha, números na seguinte) também é tratada: sem dispositivo na
+/// linha, total/usado são as colunas 0 e 1.
 fn parsear_disco(saida: &str) -> Result<(u64, u64), String> {
-    // A primeira linha é o cabeçalho ("Filesystem 1B-blocks ..."). Buscamos a
-    // primeira linha que NÃO seja cabeçalho nem vazia.
+    // A linha de dados é a montada em `/` — o cabeçalho termina em
+    // "Mounted on"/"Montado em" e nunca casa aqui, em qualquer idioma.
     let linha_dados = saida
         .lines()
         .map(str::trim)
-        .find(|linha| !linha.is_empty() && !linha.starts_with("Filesystem"))
+        .find(|linha| {
+            !linha.is_empty() && linha.split_whitespace().last().is_some_and(|m| m == "/")
+        })
         .ok_or_else(|| "sem linha de dados".to_string())?;
-    let mut campos = linha_dados.split_whitespace();
-    // Coluna 0 = dispositivo ("/dev/sda1"); 1 = total; 2 = usado.
-    let total: u64 = campos
-        .nth(1)
-        .ok_or_else(|| "sem coluna de total".to_string())?
+    let campos: Vec<&str> = linha_dados.split_whitespace().collect();
+    // Com dispositivo: [disp, total, usado, ...]; sem (linha quebrada):
+    // [total, usado, ...].
+    let (total_txt, usado_txt) = if campos.len() >= 6 {
+        // Coluna 0 = dispositivo ("/dev/sda1"); 1 = total; 2 = usado.
+        (campos[1], campos[2])
+    } else if campos.len() >= 2 {
+        (campos[0], campos[1])
+    } else {
+        return Err("sem coluna de total".to_string());
+    };
+    let total: u64 = total_txt
         .parse()
         .map_err(|_| "tamanho inválido".to_string())?;
-    let usado: u64 = campos
-        .next()
-        .ok_or_else(|| "sem coluna de usado".to_string())?
+    let usado: u64 = usado_txt
         .parse()
         .map_err(|_| "tamanho inválido".to_string())?;
     Ok((total, usado))
@@ -336,5 +350,25 @@ MemAvailable: 14000000 kB
         // Já que tudo corre numa única invocação, o comando deve conter 4
         // marcadores — 5 seções — para não pagar 5 conexões.
         assert_eq!(COMANDO_SISTEMA.matches(MARCADOR).count(), 4);
+    }
+
+    #[test]
+    fn disco_em_portugues_e_lido() {
+        // Host RHEL com locale pt-br: o cabeçalho é "Sist. Arq." e não
+        // "Filesystem" — o parser localiza a linha pelo ponto de montagem.
+        let saida = "Sist. Arq.            Blocos de 1B        Usado  Disponivel Uso% Montado em\n/dev/mapper/rhel-root 255425773568 213249495040 42176278528  84% /\n";
+        let (total, usado) = parsear_disco(saida).expect("df em português");
+        assert_eq!(total, 255_425_773_568);
+        assert_eq!(usado, 213_249_495_040);
+    }
+
+    #[test]
+    fn disco_com_dispositivo_em_linha_quebrada() {
+        // Nome longo do dispositivo quebra em duas linhas; os números ficam
+        // na segunda, sem o dispositivo.
+        let saida = "Filesystem         1B-blocks        Used Available Use% Mounted on\n/dev/mapper/rhel-root\n               500000000000 220000000000 340000000000  50% /\n";
+        let (total, usado) = parsear_disco(saida).expect("df quebrado");
+        assert_eq!(total, 500_000_000_000);
+        assert_eq!(usado, 220_000_000_000);
     }
 }

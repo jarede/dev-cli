@@ -182,8 +182,18 @@ fn parsear_ps(saida: &str) -> Vec<ContainerPs> {
 /// NÚCLEO PURO: o vetor JSON do `docker inspect <nomes...>`.
 /// `Result` (não default) porque inspect malformado é um problema de verdade,
 /// não um caso de borda do log.
+///
+/// O `Executor` combina stdout+stderr (o `docker logs` precisa: loggers como
+/// o Loguru escrevem em stderr). Efeito colateral: o `.bashrc` remoto pode
+/// anexar lixo após o JSON — ex. `tput: No value for $TERM` sem TERM na
+/// sessão não-interativa. Por isso cortamos no último `]` (fim do vetor)
+/// antes de parsear; sem `]`, parseia como veio.
 fn parsear_inspect(saida: &str) -> Result<Vec<InspecaoContainer>, String> {
-    serde_json::from_str(saida).map_err(|erro| format!("inspect não é JSON válido: {erro}"))
+    let json = match saida.rfind(']') {
+        Some(pos) => &saida[..=pos],
+        None => saida,
+    };
+    serde_json::from_str(json).map_err(|erro| format!("inspect não é JSON válido: {erro}"))
 }
 
 /// NÚCLEO PURO: as linhas do `stats --no-stream --format '{{json .}}'`.
@@ -696,5 +706,14 @@ mod tests {
         );
         esperado.insert("OPCOES".to_string(), "a=1,b=2".to_string());
         assert_eq!(mapa, esperado);
+    }
+
+    #[test]
+    fn inspect_ignora_lixo_do_bashrc_apos_json() {
+        // Sessão SSH não-interativa sem TERM: o .bashrc remoto anexa
+        // "tput: ..." (stderr) após o vetor JSON — o parse corta no último `]`.
+        let saida = format!("{FIXTURE_INSPECT}\ntput: No value for $TERM and no -T specified\n");
+        let inspecoes = parsear_inspect(&saida).expect("inspect com trailer");
+        assert_eq!(inspecoes.len(), 2);
     }
 }

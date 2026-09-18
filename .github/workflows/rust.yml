@@ -11,6 +11,7 @@ env:
 
 jobs:
   build:
+    name: Linux (build, clippy, testes)
 
     runs-on: ubuntu-latest
 
@@ -26,3 +27,30 @@ jobs:
       run: cargo clippy --all-targets -- -D warnings
     - name: Run tests
       run: cargo test --verbose
+
+  # Compilação no Windows — só `cargo check`, e existe por um motivo concreto.
+  #
+  # O release publica binário para x86_64-pc-windows-msvc (ver release.yml), e
+  # `nucleo` entra nele. Mas o job acima roda só em Linux, então uma API
+  # unix-only passava batida até a hora de gerar a versão: a v0.3.0 quebrou
+  # assim, com `std::os::unix::fs::PermissionsExt` sem `#[cfg(unix)]` na
+  # gravação do snapshot do panorama. Descobrir isso no release é tarde —
+  # a tag já está empurrada e os outros três alvos já compilaram.
+  #
+  # Por que `check` e não `build`/`test`:
+  # - `check` pega a classe inteira do problema (erro de compilação por API
+  #   ausente na plataforma), que é o que escapou, e custa uma fração do tempo.
+  # - `--all-targets` inclui os testes, então código unix-only dentro de
+  #   `#[cfg(test)]` também é verificado.
+  # - Rodar os testes aqui traria falhas de runtime por caminho POSIX nas
+  #   fixtures, que é ruído: o alvo real do coletor é Linux (systemd, socket
+  #   do docker). O contrato que este job trava é "compila", não "funciona".
+  windows:
+    name: Windows (cargo check)
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - name: Verifica a compilação no Windows
+      run: cargo check --workspace --all-targets --verbose

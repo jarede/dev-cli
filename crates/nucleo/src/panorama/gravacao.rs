@@ -9,6 +9,9 @@
 // jamais do mtime: mtime muda com cópia e backup.
 
 use std::fs;
+// Extensão só de unix: o `cfg` evita que o crate deixe de compilar no
+// Windows, para onde o release também publica binário.
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -55,9 +58,18 @@ pub fn gravar_atomico(
 
         // 0o644: dono escreve/lê, grupo lê, outros só leem — legível pelo
         // consumidor (outro usuário do grupo) e não gravável por terceiros.
-        let mut permissao = fs::metadata(&caminho_tmp)?.permissions();
-        permissao.set_mode(0o644);
-        fs::set_permissions(&caminho_tmp, permissao)?;
+        //
+        // Só em unix: modo POSIX não existe no Windows. O coletor roda em
+        // Linux (systemd, socket do docker), mas o crate precisa COMPILAR
+        // no Windows — `nucleo` entra no binário que o release publica lá.
+        // Sem permissão explícita, o arquivo herda a ACL do diretório, que
+        // é o comportamento razoável na plataforma onde isto não roda.
+        #[cfg(unix)]
+        {
+            let mut permissao = fs::metadata(&caminho_tmp)?.permissions();
+            permissao.set_mode(0o644);
+            fs::set_permissions(&caminho_tmp, permissao)?;
+        }
 
         fs::rename(&caminho_tmp, &caminho_final)?;
         Ok(())

@@ -211,7 +211,7 @@ pub fn detectar_app(linha: &str) -> AppType {
     }
 
     // Uvicorn: linha começa com nível conhecido seguido de ":" (logs da
-    // aplicação) ou " " (access log: "INFO   3.215...").
+    // aplicação) ou " " (access log: "INFO   192.0.2...").
     // Let chain (edition 2024): combina `let Some` com `&&` para evitar
     // `if` aninhado (lint `collapsible_if` do clippy).
     if let Some(rest) = t
